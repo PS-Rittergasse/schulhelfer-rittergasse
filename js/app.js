@@ -6,11 +6,10 @@
 (function() {
   'use strict';
 
-  // === DOM Elements ===
-  const $ = (selector) => document.querySelector(selector);
-  const $$ = (selector) => document.querySelectorAll(selector);
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => document.querySelectorAll(sel);
 
-  const elements = {
+  const el = {
     loading: $('#loading'),
     errorMessage: $('#error-message'),
     errorText: $('#error-text'),
@@ -30,19 +29,16 @@
     submitBtn: $('#submit-btn')
   };
 
-  // === State ===
   let events = [];
   let selectedEvent = null;
 
-  // === Initialize ===
   document.addEventListener('DOMContentLoaded', init);
 
   function init() {
     if (!CONFIG.API_URL || CONFIG.API_URL === 'IHRE_GOOGLE_APPS_SCRIPT_URL_HIER') {
-      showError('Das Tool ist noch nicht konfiguriert. Bitte setzen Sie die API_URL in der index.html.');
+      showError('Bitte konfigurieren Sie die API_URL in index.html mit Ihrer Google Apps Script URL.');
       return;
     }
-
     loadEvents();
     setupFormValidation();
     setupKeyboardNavigation();
@@ -54,23 +50,40 @@
     hideError();
     
     try {
-      const response = await fetch(`${CONFIG.API_URL}?action=getEvents`, {
+      // Build URL with cache-busting
+      const url = `${CONFIG.API_URL}?action=getEvents&_=${Date.now()}`;
+      
+      const response = await fetch(url, {
         method: 'GET',
-        headers: { 'Accept': 'application/json' }
+        redirect: 'follow'
       });
 
-      if (!response.ok) throw new Error(`HTTP Fehler: ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`Server-Fehler: ${response.status}`);
+      }
 
       const data = await response.json();
-      if (data.error) throw new Error(data.error);
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
 
       events = data.events || [];
       renderEvents();
-      announce(`${events.length} ${events.length === 1 ? 'Anlass' : 'Anlässe'} verfügbar`);
+      announce(`${events.length} ${events.length === 1 ? 'Anlass' : 'Anlässe'} gefunden`);
       
     } catch (error) {
-      console.error('Fehler:', error);
-      showError('Die Anlässe konnten nicht geladen werden. Bitte später erneut versuchen.');
+      console.error('Fehler beim Laden:', error);
+      
+      // More helpful error message
+      let message = 'Die Anlässe konnten nicht geladen werden.';
+      if (error.message.includes('Failed to fetch') || error.message.includes('CORS')) {
+        message = 'Verbindungsfehler. Bitte prüfen Sie:\n' +
+                  '1. Ist die Google Apps Script URL korrekt?\n' +
+                  '2. Wurde die Web-App als "Jeder" (nicht "Jeder mit Google-Konto") freigegeben?\n' +
+                  '3. Wurde nach Code-Änderungen eine NEUE Bereitstellung erstellt?';
+      }
+      showError(message);
     } finally {
       showLoading(false);
     }
@@ -79,13 +92,13 @@
   // === Render Events ===
   function renderEvents() {
     if (events.length === 0) {
-      elements.eventsList.innerHTML = '';
-      elements.noEvents.hidden = false;
+      el.eventsList.innerHTML = '';
+      el.noEvents.hidden = false;
       return;
     }
 
-    elements.noEvents.hidden = true;
-    elements.eventsList.innerHTML = events.map((event, i) => createEventCard(event, i)).join('');
+    el.noEvents.hidden = true;
+    el.eventsList.innerHTML = events.map((event, i) => createEventCard(event, i)).join('');
 
     $$('.event-card').forEach(card => {
       card.addEventListener('click', handleEventClick);
@@ -158,14 +171,14 @@
       card.setAttribute('aria-selected', (card.dataset.id == eventId).toString());
     });
 
-    elements.eventIdInput.value = eventId;
-    elements.selectedEventName.textContent = eventName;
-    elements.registrationSection.hidden = false;
+    el.eventIdInput.value = eventId;
+    el.selectedEventName.textContent = eventName;
+    el.registrationSection.hidden = false;
 
     setTimeout(() => {
-      elements.registrationSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.registrationSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
       setTimeout(() => {
-        elements.nameInput.focus();
+        el.nameInput.focus();
         announce(`Anmeldung für ${eventName} geöffnet`);
       }, 400);
     }, 100);
@@ -173,7 +186,7 @@
 
   // === Keyboard Navigation ===
   function setupKeyboardNavigation() {
-    elements.eventsList.addEventListener('keydown', (e) => {
+    el.eventsList.addEventListener('keydown', (e) => {
       const cards = Array.from($$('.event-card'));
       const idx = cards.indexOf(document.activeElement);
       if (idx === -1) return;
@@ -190,13 +203,13 @@
     });
   }
 
-  // === Form Validation ===
+  // === Form ===
   function setupFormValidation() {
-    elements.form.addEventListener('submit', handleSubmit);
-    elements.nameInput.addEventListener('blur', () => validateField(elements.nameInput, validateName));
-    elements.emailInput.addEventListener('blur', () => validateField(elements.emailInput, validateEmail));
-    elements.nameInput.addEventListener('input', () => clearFieldError(elements.nameInput));
-    elements.emailInput.addEventListener('input', () => clearFieldError(elements.emailInput));
+    el.form.addEventListener('submit', handleSubmit);
+    el.nameInput.addEventListener('blur', () => validateField(el.nameInput, validateName));
+    el.emailInput.addEventListener('blur', () => validateField(el.emailInput, validateEmail));
+    el.nameInput.addEventListener('input', () => clearFieldError(el.nameInput));
+    el.emailInput.addEventListener('input', () => clearFieldError(el.emailInput));
   }
 
   function validateField(input, validator) {
@@ -231,49 +244,52 @@
     return null;
   }
 
-  // === Form Submission ===
+  // === Submit ===
   async function handleSubmit(e) {
     e.preventDefault();
-    hideError(); hideSuccess();
+    hideError();
+    hideSuccess();
 
-    const nameValid = validateField(elements.nameInput, validateName);
-    const emailValid = validateField(elements.emailInput, validateEmail);
+    const nameValid = validateField(el.nameInput, validateName);
+    const emailValid = validateField(el.emailInput, validateEmail);
 
     if (!nameValid || !emailValid) {
-      (nameValid ? elements.emailInput : elements.nameInput).focus();
+      (nameValid ? el.emailInput : el.nameInput).focus();
       announce('Bitte korrigieren Sie die markierten Felder.');
       return;
     }
 
     const data = {
-      anlassId: elements.eventIdInput.value,
-      name: elements.nameInput.value.trim(),
-      email: elements.emailInput.value.trim(),
-      telefon: elements.phoneInput.value.trim()
+      anlassId: el.eventIdInput.value,
+      name: el.nameInput.value.trim(),
+      email: el.emailInput.value.trim(),
+      telefon: el.phoneInput.value.trim()
     };
 
     setSubmitLoading(true);
 
     try {
-      const res = await fetch(CONFIG.API_URL, {
+      const response = await fetch(CONFIG.API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(data)
       });
-      const result = await res.json();
+
+      const result = await response.json();
 
       if (result.success) {
         showSuccess(result.message);
         resetForm();
         announce('Anmeldung erfolgreich!');
-        setTimeout(loadEvents, 2500);
+        setTimeout(loadEvents, 2000);
       } else {
         showError(result.message || 'Ein Fehler ist aufgetreten.');
         announce(`Fehler: ${result.message}`);
       }
-    } catch (err) {
-      console.error('Fehler:', err);
-      showError('Die Anmeldung konnte nicht gesendet werden.');
+    } catch (error) {
+      console.error('Fehler beim Senden:', error);
+      showError('Die Anmeldung konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.');
       announce('Fehler beim Senden.');
     } finally {
       setSubmitLoading(false);
@@ -281,16 +297,16 @@
   }
 
   function setSubmitLoading(loading) {
-    elements.submitBtn.disabled = loading;
-    const btnContent = elements.submitBtn.querySelector('.btn-content');
-    const btnLoading = elements.submitBtn.querySelector('.btn-loading');
+    el.submitBtn.disabled = loading;
+    const btnContent = el.submitBtn.querySelector('.btn-content');
+    const btnLoading = el.submitBtn.querySelector('.btn-loading');
     if (btnContent) btnContent.hidden = loading;
     if (btnLoading) btnLoading.hidden = !loading;
   }
 
   function resetForm() {
-    elements.form.reset();
-    elements.registrationSection.hidden = true;
+    el.form.reset();
+    el.registrationSection.hidden = true;
     selectedEvent = null;
     $$('.event-card').forEach(card => card.setAttribute('aria-selected', 'false'));
   }
@@ -298,37 +314,37 @@
   window.cancelRegistration = function() {
     resetForm();
     announce('Anmeldung abgebrochen');
-    elements.eventsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.eventsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setTimeout(() => { const c = $('.event-card'); if (c) c.focus(); }, 400);
   };
 
   // === Helpers ===
   function showLoading(show) {
-    elements.loading.hidden = !show;
-    elements.eventsSection.setAttribute('aria-busy', show ? 'true' : 'false');
+    el.loading.hidden = !show;
+    el.eventsSection.setAttribute('aria-busy', show ? 'true' : 'false');
   }
 
   function showError(msg) {
-    elements.errorText.textContent = msg;
-    elements.errorMessage.hidden = false;
-    elements.errorMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.errorText.textContent = msg;
+    el.errorMessage.hidden = false;
+    el.errorMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
-  function hideError() { elements.errorMessage.hidden = true; }
+  function hideError() { el.errorMessage.hidden = true; }
   window.closeError = hideError;
 
   function showSuccess(msg) {
-    elements.successText.textContent = msg;
-    elements.successMessage.hidden = false;
-    elements.successMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.successText.textContent = msg;
+    el.successMessage.hidden = false;
+    el.successMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
-  function hideSuccess() { elements.successMessage.hidden = true; }
+  function hideSuccess() { el.successMessage.hidden = true; }
 
   function announce(msg) {
-    if (elements.statusMessage) {
-      elements.statusMessage.textContent = msg;
-      setTimeout(() => { elements.statusMessage.textContent = ''; }, 1000);
+    if (el.statusMessage) {
+      el.statusMessage.textContent = msg;
+      setTimeout(() => { el.statusMessage.textContent = ''; }, 1000);
     }
   }
 
