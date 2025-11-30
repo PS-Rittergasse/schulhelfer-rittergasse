@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="Helfen Sie mit! Anmeldeformular für Schulanlässe der Primarstufe Rittergasse Basel">
+  <meta name="theme-color" content="#1e3a5f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  
+  <title>Schulhelfer – Primarstufe Rittergasse Basel</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="css/styles.css">
+  
+  <!-- Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏰</text></svg>">
+</head>
+<body>
+  <!-- Skip Link -->
+  <a href="#main-content" class="skip-link">Zum Hauptinhalt springen</a>
+  
+  <!-- Header -->
+  <header class="header" role="banner">
+    <div class="header-bg"></div>
+    <div class="container">
+      <div class="header-content">
+        <div class="school-badge" aria-hidden="true">
+          <span class="school-icon">🏰</span>
+        </div>
+        <div class="school-info">
+          <p class="school-name">Primarstufe Rittergasse Basel</p>
+          <h1 class="site-title">Schulhelfer gesucht!</h1>
+          <p class="school-type">Kindergarten & Primarschule</p>
+        </div>
+      </div>
+      <p class="header-intro">
+        Unterstützen Sie unsere Schulgemeinschaft bei kommenden Anlässen – 
+        Ihre Hilfe macht den Unterschied!
+      </p>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main id="main-content" class="main" role="main">
+    <div class="container">
+      
+      <!-- Status (Screenreader) -->
+      <div id="status-message" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+      
+      <!-- Error Message -->
+      <div id="error-message" class="message message--error" role="alert" aria-live="assertive" hidden>
+        <div class="message-icon" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+        </div>
+        <div class="message-content">
+          <strong>Fehler</strong>
+          <span id="error-text"></span>
+        </div>
+        <button type="button" class="message-close" aria-label="Meldung schliessen" onclick="closeError()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      
+      <!-- Success Message -->
+      <div id="success-message" class="message message--success" role="alert" aria-live="polite" hidden>
+        <div class="message-icon" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+          </svg>
+        </div>
+        <div class="message-content">
+          <strong>Vielen Dank!</strong>
+          <span id="success-text"></span>
+        </div>
+      </div>
+
+      <!-- Loading -->
+      <div id="loading" class="loading" aria-busy="true" hidden>
+        <div class="loading-spinner" aria-hidden="true"></div>
+        <p>Anlässe werden geladen...</p>
+      </div>
+
+      <!-- Events Section -->
+      <section id="events-section" class="events-section" aria-labelledby="events-heading">
+        <div class="section-header">
+          <h2 id="events-heading" class="section-heading">
+            <span class="section-icon" aria-hidden="true">📅</span>
+            Aktuelle Anlässe
+          </h2>
+          <p class="section-intro">Tippen Sie auf einen Anlass, um sich anzumelden</p>
+        </div>
+        
+        <div id="events-list" class="events-list" role="list" aria-label="Verfügbare Anlässe"></div>
+        
+        <!-- No Events -->
+        <div id="no-events" class="no-events" hidden>
+          <div class="no-events-icon" aria-hidden="true">
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+          </div>
+          <h3>Keine Anlässe verfügbar</h3>
+          <p>Momentan suchen wir keine Helfer.<br>Schauen Sie später wieder vorbei!</p>
+        </div>
+      </section>
+
+      <!-- Registration Form -->
+      <section id="registration-section" class="registration-section" aria-labelledby="form-heading" hidden>
+        <div class="registration-card">
+          <div class="registration-header">
+            <button type="button" class="back-btn" onclick="cancelRegistration()" aria-label="Zurück zur Anlassauswahl">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="15 18 9 12 15 6"></polyline>
+              </svg>
+              <span>Zurück</span>
+            </button>
+          </div>
+          
+          <div class="registration-content">
+            <h2 id="form-heading" class="registration-title">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="8.5" cy="7" r="4"></circle>
+                <line x1="20" y1="8" x2="20" y2="14"></line>
+                <line x1="23" y1="11" x2="17" y2="11"></line>
+              </svg>
+              Anmeldung
+            </h2>
+            
+            <div class="selected-event">
+              <span class="selected-label">Für diesen Anlass:</span>
+              <span id="selected-event-name" class="selected-name"></span>
+            </div>
+            
+            <form id="registration-form" class="registration-form" novalidate>
+              <input type="hidden" id="event-id" name="eventId">
+              
+              <!-- Name -->
+              <div class="form-group">
+                <label for="name" class="form-label">
+                  Ihr Name
+                  <span class="required" aria-hidden="true">*</span>
+                </label>
+                <div class="input-wrapper">
+                  <svg class="input-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                  <input type="text" id="name" name="name" class="form-input" required autocomplete="name" placeholder="Vor- und Nachname">
+                </div>
+                <span id="name-error" class="form-error" role="alert" hidden></span>
+              </div>
+              
+              <!-- Email -->
+              <div class="form-group">
+                <label for="email" class="form-label">
+                  E-Mail-Adresse
+                  <span class="required" aria-hidden="true">*</span>
+                </label>
+                <div class="input-wrapper">
+                  <svg class="input-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                    <polyline points="22,6 12,13 2,6"></polyline>
+                  </svg>
+                  <input type="email" id="email" name="email" class="form-input" required autocomplete="email" placeholder="ihre.email@beispiel.ch">
+                </div>
+                <span id="email-error" class="form-error" role="alert" hidden></span>
+              </div>
+              
+              <!-- Phone -->
+              <div class="form-group">
+                <label for="phone" class="form-label">
+                  Telefonnummer
+                  <span class="optional">(optional)</span>
+                </label>
+                <div class="input-wrapper">
+                  <svg class="input-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                  </svg>
+                  <input type="tel" id="phone" name="phone" class="form-input" autocomplete="tel" placeholder="079 123 45 67">
+                </div>
+                <span class="form-hint">Für Rückfragen bei Änderungen</span>
+              </div>
+              
+              <!-- Submit -->
+              <button type="submit" id="submit-btn" class="btn btn-primary">
+                <span class="btn-content">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                  <span>Jetzt anmelden</span>
+                </span>
+                <span class="btn-loading" hidden>
+                  <span class="spinner"></span>
+                  <span>Wird gesendet...</span>
+                </span>
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer" role="contentinfo">
+    <div class="container">
+      <div class="footer-main">
+        <div class="footer-brand">
+          <span class="footer-icon" aria-hidden="true">🏰</span>
+          <div class="footer-info">
+            <strong>Primarstufe Rittergasse</strong>
+            <span>Kindergarten & Primarschule Basel</span>
+          </div>
+        </div>
+        <p class="footer-thanks">
+          <span aria-hidden="true">❤️</span> 
+          Vielen Dank für Ihre Unterstützung!
+        </p>
+      </div>
+      <div class="footer-bottom">
+        <a href="#main-content" class="back-to-top">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="18 15 12 9 6 15"></polyline>
+          </svg>
+          Nach oben
+        </a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Config -->
+  <script>
+    const CONFIG = {
+      API_URL: 'IHRE_GOOGLE_APPS_SCRIPT_URL_HIER',
+      SCHOOL_NAME: 'Primarstufe Rittergasse Basel'
+    };
+  </script>
+  <script src="js/app.js"></script>
+</body>
+</html>
