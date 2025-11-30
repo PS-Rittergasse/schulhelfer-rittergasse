@@ -131,116 +131,65 @@ function sendEmailNotification(to, subject, body, htmlBody) {
 }
 
 /**
- * Generate cancellation token
- */
-function generateCancellationToken(email, anlassId) {
-  var data = email + '|' + anlassId + '|' + Date.now();
-  return Utilities.base64EncodeWebSafe(data);
-}
-
-/**
- * Parse cancellation token
- */
-function parseCancellationToken(token) {
-  try {
-    var decoded = Utilities.newBlob(Utilities.base64DecodeWebSafe(token)).getDataAsString();
-    var parts = decoded.split('|');
-    if (parts.length >= 2) {
-      return { email: parts[0], anlassId: parts[1] };
-    }
-    return null;
-  } catch (e) {
-    return null;
-  }
-}
-
-/**
  * Send confirmation email to user
  */
-function sendUserConfirmation(email, name, anlassName, datum, zeit, cancellationToken) {
-  var subject = '✓ Anmeldung bestätigt: ' + anlassName;
+function sendUserConfirmation(email, name, anlassName, datum, zeit) {
+  var subject = 'Anmeldung bestaetigt: ' + anlassName;
   
-  var htmlBody = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <style>
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #1a202c; margin: 0; padding: 0; }
-    .container { max-width: 600px; margin: 0 auto; padding: 32px 24px; }
-    .header { text-align: center; padding-bottom: 24px; border-bottom: 2px solid #e2e8f0; margin-bottom: 24px; }
-    .logo { font-size: 48px; margin-bottom: 8px; }
-    .title { font-size: 24px; font-weight: 700; color: #1a365d; margin: 0; }
-    .subtitle { font-size: 14px; color: #718096; margin-top: 4px; }
-    .success { background: #c6f6d5; border-left: 4px solid #276749; padding: 16px 20px; border-radius: 8px; margin-bottom: 24px; }
-    .success h2 { color: #22543d; font-size: 18px; margin: 0 0 8px 0; }
-    .success p { color: #276749; margin: 0; }
-    .details { background: #f7fafc; border-radius: 8px; padding: 20px; margin-bottom: 24px; }
-    .details h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: #718096; margin: 0 0 12px 0; }
-    .detail-row { display: flex; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
-    .detail-row:last-child { border-bottom: none; }
-    .detail-label { font-weight: 600; color: #4a5568; width: 120px; flex-shrink: 0; }
-    .detail-value { color: #1a202c; }
-    .cancel-section { text-align: center; padding: 24px; background: #fff5f5; border-radius: 8px; margin-top: 24px; }
-    .cancel-section p { font-size: 14px; color: #742a2a; margin: 0 0 12px 0; }
-    .cancel-link { color: #c53030; font-size: 12px; }
-    .footer { text-align: center; padding-top: 24px; border-top: 1px solid #e2e8f0; margin-top: 32px; }
-    .footer p { font-size: 12px; color: #a0aec0; margin: 0; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <div class="logo">🏰</div>
-      <h1 class="title">Primarstufe Rittergasse</h1>
-      <p class="subtitle">Kindergarten & Primarschule Basel</p>
-    </div>
+  // Build HTML email using string concatenation (more reliable in GAS)
+  var zeitRow = '';
+  if (zeit) {
+    zeitRow = '<tr><td style="padding:12px 16px;font-weight:600;color:#1a202c;border-bottom:1px solid #e5e7eb;">Zeit:</td>' +
+              '<td style="padding:12px 16px;color:#374151;border-bottom:1px solid #e5e7eb;">' + zeit + '</td></tr>';
+  }
+  
+  var htmlBody = '<!DOCTYPE html>' +
+    '<html><head><meta charset="UTF-8"></head>' +
+    '<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background-color:#f3f4f6;">' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6;padding:32px 16px;">' +
+    '<tr><td align="center">' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.1);">' +
     
-    <div class="success">
-      <h2>✓ Anmeldung bestätigt!</h2>
-      <p>Vielen Dank, ${name}! Ihre Anmeldung wurde erfolgreich registriert.</p>
-    </div>
+    // Header
+    '<tr><td style="background:linear-gradient(135deg,#1e3a5f 0%,#2d5a8a 100%);padding:32px;text-align:center;">' +
+    '<div style="font-size:40px;margin-bottom:8px;">🏰</div>' +
+    '<h1 style="margin:0;font-size:22px;font-weight:700;color:#ffffff;">Primarstufe Rittergasse</h1>' +
+    '<p style="margin:4px 0 0;font-size:14px;color:rgba(255,255,255,0.8);">Kindergarten & Primarschule Basel</p>' +
+    '</td></tr>' +
     
-    <div class="details">
-      <h3>Ihre Anmeldung</h3>
-      <div class="detail-row">
-        <span class="detail-label">Anlass:</span>
-        <span class="detail-value"><strong>${anlassName}</strong></span>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">Datum:</span>
-        <span class="detail-value">${datum}</span>
-      </div>
-      ${zeit ? `<div class="detail-row">
-        <span class="detail-label">Zeit:</span>
-        <span class="detail-value">${zeit}</span>
-      </div>` : ''}
-      <div class="detail-row">
-        <span class="detail-label">Angemeldet als:</span>
-        <span class="detail-value">${name}</span>
-      </div>
-    </div>
+    // Success banner
+    '<tr><td style="padding:24px 24px 0;">' +
+    '<div style="background-color:#d1fae5;border-left:4px solid #059669;padding:16px 20px;border-radius:8px;">' +
+    '<h2 style="margin:0 0 4px;font-size:18px;color:#065f46;">✓ Anmeldung bestätigt!</h2>' +
+    '<p style="margin:0;font-size:15px;color:#047857;">Vielen Dank, ' + name + '!</p>' +
+    '</div></td></tr>' +
     
-    <p style="font-size: 14px; color: #4a5568;">
-      Wir freuen uns auf Ihre Unterstützung! Bei Fragen wenden Sie sich bitte an die Schulleitung.
-    </p>
+    // Details table
+    '<tr><td style="padding:24px;">' +
+    '<h3 style="margin:0 0 16px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280;">Ihre Anmeldung</h3>' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9fafb;border-radius:8px;overflow:hidden;">' +
+    '<tr><td style="padding:12px 16px;font-weight:600;color:#1a202c;border-bottom:1px solid #e5e7eb;">Anlass:</td>' +
+    '<td style="padding:12px 16px;color:#374151;border-bottom:1px solid #e5e7eb;font-weight:600;">' + anlassName + '</td></tr>' +
+    '<tr><td style="padding:12px 16px;font-weight:600;color:#1a202c;border-bottom:1px solid #e5e7eb;">Datum:</td>' +
+    '<td style="padding:12px 16px;color:#374151;border-bottom:1px solid #e5e7eb;">' + datum + '</td></tr>' +
+    zeitRow +
+    '<tr><td style="padding:12px 16px;font-weight:600;color:#1a202c;">Angemeldet als:</td>' +
+    '<td style="padding:12px 16px;color:#374151;">' + name + '</td></tr>' +
+    '</table></td></tr>' +
     
-    <div class="cancel-section">
-      <p>Falls Sie nicht teilnehmen können, können Sie Ihre Anmeldung hier stornieren:</p>
-      <a href="CANCEL_URL_PLACEHOLDER?action=cancel&token=${cancellationToken}" class="cancel-link">
-        Anmeldung stornieren
-      </a>
-    </div>
+    // Message
+    '<tr><td style="padding:0 24px 24px;">' +
+    '<p style="margin:0;font-size:15px;color:#4b5563;line-height:1.6;">Wir freuen uns auf Ihre Unterstützung! Bei Fragen wenden Sie sich bitte an die Schulleitung.</p>' +
+    '</td></tr>' +
     
-    <div class="footer">
-      <p>Primarstufe Rittergasse Basel<br>
-      Diese E-Mail wurde automatisch generiert.</p>
-    </div>
-  </div>
-</body>
-</html>`;
+    // Footer
+    '<tr><td style="padding:20px 24px;background-color:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;">' +
+    '<p style="margin:0;font-size:12px;color:#9ca3af;">Primarstufe Rittergasse Basel<br>Diese E-Mail wurde automatisch generiert.</p>' +
+    '</td></tr>' +
+    
+    '</table></td></tr></table></body></html>';
 
-  var textBody = 'Anmeldung bestätigt: ' + anlassName + '\n\n' +
+  var textBody = 'Anmeldung bestaetigt: ' + anlassName + '\n\n' +
                  'Vielen Dank, ' + name + '!\n\n' +
                  'Ihre Anmeldung wurde erfolgreich registriert.\n\n' +
                  'Anlass: ' + anlassName + '\n' +
@@ -279,11 +228,6 @@ function doGet(e) {
         events: events 
       });
       logAudit('GET_EVENTS', { count: events.length }, true, null);
-    } else if (action === 'cancel') {
-      var token = e.parameter.token;
-      var result = cancelRegistration(token);
-      output = JSON.stringify(result);
-      logAudit('CANCEL_REGISTRATION', { token: token }, result.success, result.message);
     } else if (action === 'export') {
       // Data export functionality
       var result = exportData();
@@ -501,11 +445,8 @@ function registriereHelfer(data) {
       }
     }
     
-    // Generate cancellation token
-    var cancellationToken = generateCancellationToken(email, anlassId);
-    
     // Send confirmation email to user
-    sendUserConfirmation(email, name, anlassName, eventDatum, eventZeit, cancellationToken);
+    sendUserConfirmation(email, name, anlassName, eventDatum, eventZeit);
     
     // Send email notification to admin
     if (ADMIN_EMAIL) {
@@ -532,86 +473,6 @@ function registriereHelfer(data) {
   }
 }
 
-// === Cancel Registration ===
-function cancelRegistration(token) {
-  if (!token) {
-    return { success: false, message: 'Ungültiger Stornierungslink.' };
-  }
-  
-  var tokenData = parseCancellationToken(token);
-  if (!tokenData) {
-    return { success: false, message: 'Ungültiger oder abgelaufener Stornierungslink.' };
-  }
-  
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var helferSheet = ss.getSheetByName('Anmeldungen');
-  var anlassSheet = ss.getSheetByName('Anlässe');
-  
-  if (!helferSheet || !anlassSheet) {
-    return { success: false, message: 'Systemfehler. Bitte kontaktieren Sie die Schulleitung.' };
-  }
-  
-  var lock = LockService.getScriptLock();
-  try {
-    lock.waitLock(10000);
-    
-    var helferData = helferSheet.getDataRange().getValues();
-    var rowToDelete = -1;
-    var anlassId = '';
-    var anlassName = '';
-    var helferName = '';
-    
-    for (var i = 1; i < helferData.length; i++) {
-      var rowEmail = String(helferData[i][3] || '').toLowerCase();
-      var rowAnlassId = String(helferData[i][1] || '');
-      
-      if (rowEmail == tokenData.email.toLowerCase() && rowAnlassId == tokenData.anlassId) {
-        rowToDelete = i + 1; // 1-based row number
-        anlassId = rowAnlassId;
-        anlassName = helferData[i][5] || '';
-        helferName = helferData[i][2] || '';
-        break;
-      }
-    }
-    
-    if (rowToDelete === -1) {
-      lock.releaseLock();
-      return { success: false, message: 'Diese Anmeldung wurde nicht gefunden oder wurde bereits storniert.' };
-    }
-    
-    // Delete the registration row
-    helferSheet.deleteRow(rowToDelete);
-    
-    // Update the helper count in Anlässe
-    var anlassData = anlassSheet.getDataRange().getValues();
-    for (var j = 1; j < anlassData.length; j++) {
-      if (String(anlassData[j][0]) == anlassId) {
-        var currentCount = parseInt(anlassData[j][5]) || 0;
-        if (currentCount > 0) {
-          anlassSheet.getRange(j + 1, 6).setValue(currentCount - 1);
-        }
-        break;
-      }
-    }
-    
-    lock.releaseLock();
-    
-    // Log the cancellation
-    logAudit('REGISTRATION_CANCELLED', { email: tokenData.email, anlassId: anlassId, name: helferName }, true, null);
-    
-    return { 
-      success: true, 
-      message: 'Ihre Anmeldung für «' + anlassName + '» wurde erfolgreich storniert. Vielen Dank für die Rückmeldung!' 
-    };
-    
-  } catch (e) {
-    if (lock.hasLock()) {
-      lock.releaseLock();
-    }
-    return { success: false, message: 'Ein Fehler ist aufgetreten. Bitte versuchen Sie es erneut.' };
-  }
-}
-
 // === Setup ===
 function erstesSetup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -624,17 +485,29 @@ function erstesSetup() {
   ]);
   anlassSheet.getRange(1, 1, 1, 7).setBackground('#1e3a5f').setFontColor('white').setFontWeight('bold');
   
-  // Add sample events
-  var beispiele = [
-    ['1', 'Sommerfest', new Date(Date.now() + 30*24*60*60*1000), '14:00-18:00', 5, 0, 'Hilfe beim Aufbau und Grill'],
-    ['2', 'Schulaufführung', new Date(Date.now() + 45*24*60*60*1000), '18:00-21:00', 3, 0, 'Garderobe und Einlass'],
-    ['3', 'Sporttag', new Date(Date.now() + 60*24*60*60*1000), '08:00-16:00', 8, 0, 'Posten betreuen']
+  // Echte Anlässe der Primarstufe Rittergasse 2025/26
+  var anlaesse = [
+    ['1', 'Adventssingen – Aufbau (Probe)', new Date(2025, 11, 8), '07:30-10:00', 8, 0, 'Aufbau für die Probe am Montag'],
+    ['2', 'Adventssingen – Aufbau & Licht', new Date(2025, 11, 10), '07:30-10:00 / 18:45-20:00', 8, 0, 'Morgens Aufbau, abends Lichtunterstützung'],
+    ['3', 'Adventssingen – Einlass Münster', new Date(2025, 11, 10), '18:30-20:00', 5, 0, 'Einlass am Münster-Eingang (4 Pers.) und innen (1-2 Pers.)'],
+    ['4', 'Adventssingen – Abbau', new Date(2025, 11, 10), 'ab 20:00', 20, 0, 'Abbauen und Rücktransport des Materials in den Schulhaus-Keller'],
+    ['5', 'Fasnachtsumzug', new Date(2026, 1, 12), 'ganztags', 10, 0, 'Begleitung der Kinder am Fasnachtsumzug'],
+    ['6', 'Sporttag Kindergarten & Unterstufe', new Date(2026, 4, 12), 'ab 08:15', 12, 0, 'Kannenfeldpark – Mithilfe bei Posten, Zeitnahme, Ergebnisse'],
+    ['7', 'Sporttag Mittelstufe', new Date(2026, 5, 3), '08:00-12:30', 15, 0, 'Leichtathletikstadion St. Jakob – Mithilfe bei Posten, Zeitnahme, Ergebnisse'],
+    ['8', 'Schuljahresabschluss – Dekoration', new Date(2026, 5, 25), 'ab 16:00', 8, 0, 'Schulhof PS Rittergasse – Dekoration, Feuerschalen aufstellen'],
+    ['9', 'Schuljahresabschluss – Abbau', new Date(2026, 5, 25), 'ab 21:00', 10, 0, 'Schulhof PS Rittergasse – Abbau der Tischgarnituren'],
+    ['10', 'Elterncafé am 1. Schultag', new Date(2026, 7, 10), '09:00-10:45', 6, 0, 'Schulhof PS Rittergasse – Begrüssung der Eltern der neuen 1. Klassen']
   ];
-  anlassSheet.getRange(2, 1, 3, 7).setValues(beispiele);
-  anlassSheet.setColumnWidths(1, 1, 50);
-  anlassSheet.setColumnWidths(2, 1, 200);
-  anlassSheet.setColumnWidths(3, 1, 120);
-  anlassSheet.setColumnWidths(7, 1, 250);
+  anlassSheet.getRange(2, 1, anlaesse.length, 7).setValues(anlaesse);
+  
+  // Format columns
+  anlassSheet.setColumnWidth(1, 40);
+  anlassSheet.setColumnWidth(2, 250);
+  anlassSheet.setColumnWidth(3, 100);
+  anlassSheet.setColumnWidth(4, 150);
+  anlassSheet.setColumnWidth(5, 100);
+  anlassSheet.setColumnWidth(6, 90);
+  anlassSheet.setColumnWidth(7, 350);
   
   // Create Anmeldungen sheet
   var helferSheet = ss.getSheetByName('Anmeldungen') || ss.insertSheet('Anmeldungen');
@@ -652,6 +525,7 @@ function erstesSetup() {
   
   SpreadsheetApp.getUi().alert(
     '✅ Setup abgeschlossen!\n\n' +
+    '10 Anlässe für 2025/26 wurden eingetragen.\n\n' +
     'Nächster Schritt:\n' +
     '1. Klicken Sie auf "Bereitstellen" → "Neue Bereitstellung"\n' +
     '2. Typ: Web-App\n' +
