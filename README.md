@@ -13,6 +13,12 @@ Ein barrierefreies, mobil-optimiertes Tool zur Rekrutierung von Eltern-Helfern f
 - 🌙 **Dark Mode** – Automatische Anpassung
 - 🔒 **Keine Datenbank** – Daten in Google Sheets
 - ⚡ **Schnell** – Lädt in unter 2 Sekunden
+- 🔄 **Automatische Wiederholung** – Retry-Logik bei Netzwerkfehlern
+- 💾 **Formular-Speicherung** – Daten werden lokal gespeichert
+- 🛡️ **Sicherheit** – Rate Limiting, Input-Sanitization, Transaktionssicherheit
+- 📧 **E-Mail-Benachrichtigungen** – Optionale Benachrichtigungen bei Anmeldungen
+- 📊 **Audit-Log** – Vollständige Protokollierung aller Aktionen
+- 📥 **Datenexport** – Export-Funktion für Anmeldungen
 
 ---
 
@@ -97,6 +103,12 @@ Oder direkt in der Tabelle "Anlässe":
 - ID muss eindeutig sein
 - Datum im Format TT.MM.JJJJ
 
+### Neue Funktionen
+
+- **Daten exportieren**: Menü → "Daten exportieren (CSV)" – Exportiert alle Anlässe und Anmeldungen
+- **Audit-Log anzeigen**: Menü → "Audit-Log anzeigen" – Zeigt alle Systemaktionen
+- **E-Mail-Benachrichtigungen**: Setzen Sie `ADMIN_EMAIL` in `Code.gs` (Zeile 13) für Benachrichtigungen
+
 ---
 
 ## ❓ FAQ
@@ -111,7 +123,16 @@ Ja! Ändern Sie die Farben in `css/styles.css` unter `:root`.
 Unbegrenzt – das Limit setzen Sie pro Anlass in der Spalte "Benötigte Helfer".
 
 **Werden Daten geschützt?**  
-Die Daten liegen in Ihrem Google Sheet. Nur Sie haben Zugriff.
+Die Daten liegen in Ihrem Google Sheet. Nur Sie haben Zugriff. Das System verwendet Rate Limiting, Input-Sanitization und Transaktionssicherheit.
+
+**Was ist das Audit-Log?**  
+Alle Anmeldungen und Systemaktionen werden protokolliert. Sie finden das Log im Tab "Audit-Log" im Google Sheet.
+
+**Wie funktioniert die Formular-Speicherung?**  
+Ihre Eingaben werden lokal im Browser gespeichert und automatisch wiederhergestellt, falls die Seite versehentlich geschlossen wird.
+
+**Was ist Rate Limiting?**  
+Das System verhindert Missbrauch durch Begrenzung der Anfragen pro Zeitfenster (10 Anfragen pro Minute).
 
 ---
 

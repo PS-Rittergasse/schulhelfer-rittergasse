@@ -31,6 +31,19 @@
 
   let events = [];
   let selectedEvent = null;
+  let retryCount = 0;
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 1000; // ms
+
+  // Generate unique identifier for rate limiting
+  function getIdentifier() {
+    let id = localStorage.getItem('userIdentifier');
+    if (!id) {
+      id = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      localStorage.setItem('userIdentifier', id);
+    }
+    return id;
+  }
 
   document.addEventListener('DOMContentLoaded', init);
 
@@ -42,21 +55,31 @@
     loadEvents();
     setupFormValidation();
     setupKeyboardNavigation();
+    restoreFormData();
+    setupFormPersistence();
   }
 
-  // === Load Events ===
-  async function loadEvents() {
+  // === Load Events with Retry Logic ===
+  async function loadEvents(retryAttempt = 0) {
     showLoading(true);
     hideError();
     
     try {
-      // Build URL with cache-busting
-      const url = `${CONFIG.API_URL}?action=getEvents&_=${Date.now()}`;
+      // Build URL with cache-busting and identifier
+      const identifier = getIdentifier();
+      const url = `${CONFIG.API_URL}?action=getEvents&identifier=${encodeURIComponent(identifier)}&_=${Date.now()}`;
+      
+      // Create timeout controller for older browsers
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
       
       const response = await fetch(url, {
         method: 'GET',
-        redirect: 'follow'
+        redirect: 'follow',
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error(`Server-Fehler: ${response.status}`);
@@ -70,18 +93,36 @@
 
       events = data.events || [];
       renderEvents();
+      retryCount = 0; // Reset on success
       announce(`${events.length} ${events.length === 1 ? 'Anlass' : 'Anlässe'} gefunden`);
       
     } catch (error) {
       console.error('Fehler beim Laden:', error);
       
+      // Retry logic for network failures
+      if (retryAttempt < MAX_RETRIES && (
+        error.message.includes('Failed to fetch') || 
+        error.message.includes('network') ||
+        error.name === 'TimeoutError' ||
+        error.name === 'AbortError'
+      )) {
+        retryAttempt++;
+        retryCount = retryAttempt;
+        announce(`Verbindungsfehler. Versuch ${retryAttempt}/${MAX_RETRIES}...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * retryAttempt));
+        return loadEvents(retryAttempt);
+      }
+      
       // More helpful error message
       let message = 'Die Anlässe konnten nicht geladen werden.';
-      if (error.message.includes('Failed to fetch') || error.message.includes('CORS')) {
+      if (error.message.includes('Failed to fetch') || error.message.includes('CORS') || error.name === 'TimeoutError') {
         message = 'Verbindungsfehler. Bitte prüfen Sie:\n' +
                   '1. Ist die Google Apps Script URL korrekt?\n' +
                   '2. Wurde die Web-App als "Jeder" (nicht "Jeder mit Google-Konto") freigegeben?\n' +
-                  '3. Wurde nach Code-Änderungen eine NEUE Bereitstellung erstellt?';
+                  '3. Wurde nach Code-Änderungen eine NEUE Bereitstellung erstellt?\n' +
+                  '4. Ist Ihre Internetverbindung aktiv?';
+      } else if (error.message.includes('Rate limit')) {
+        message = 'Zu viele Anfragen. Bitte warten Sie einen Moment und versuchen Sie es erneut.';
       }
       showError(message);
     } finally {
@@ -203,13 +244,76 @@
     });
   }
 
+  // === Form Persistence ===
+  function setupFormPersistence() {
+    // Save form data on input
+    [el.nameInput, el.emailInput, el.phoneInput].forEach(input => {
+      input.addEventListener('input', () => {
+        saveFormData();
+      });
+    });
+    
+    // Clear saved data on successful submission
+    el.form.addEventListener('submit', () => {
+      // Will be cleared after successful submission
+    });
+  }
+
+  function saveFormData() {
+    const formData = {
+      name: el.nameInput.value,
+      email: el.emailInput.value,
+      phone: el.phoneInput.value,
+      eventId: el.eventIdInput.value,
+      timestamp: Date.now()
+    };
+    localStorage.setItem('schulhelfer_form', JSON.stringify(formData));
+  }
+
+  function restoreFormData() {
+    try {
+      const saved = localStorage.getItem('schulhelfer_form');
+      if (saved) {
+        const formData = JSON.parse(saved);
+        // Only restore if less than 1 hour old
+        if (Date.now() - formData.timestamp < 3600000) {
+          if (formData.name) el.nameInput.value = formData.name;
+          if (formData.email) el.emailInput.value = formData.email;
+          if (formData.phone) el.phoneInput.value = formData.phone;
+          if (formData.eventId) {
+            // Try to restore the selected event
+            const event = events.find(e => e.id == formData.eventId);
+            if (event) {
+              selectEvent(event.id, event.name);
+            }
+          }
+        } else {
+          // Clear old data
+          localStorage.removeItem('schulhelfer_form');
+        }
+      }
+    } catch (e) {
+      console.warn('Could not restore form data:', e);
+    }
+  }
+
+  function clearFormData() {
+    localStorage.removeItem('schulhelfer_form');
+  }
+
   // === Form ===
   function setupFormValidation() {
     el.form.addEventListener('submit', handleSubmit);
     el.nameInput.addEventListener('blur', () => validateField(el.nameInput, validateName));
     el.emailInput.addEventListener('blur', () => validateField(el.emailInput, validateEmail));
-    el.nameInput.addEventListener('input', () => clearFieldError(el.nameInput));
-    el.emailInput.addEventListener('input', () => clearFieldError(el.emailInput));
+    el.nameInput.addEventListener('input', () => {
+      clearFieldError(el.nameInput);
+      saveFormData();
+    });
+    el.emailInput.addEventListener('input', () => {
+      clearFieldError(el.emailInput);
+      saveFormData();
+    });
   }
 
   function validateField(input, validator) {
@@ -244,7 +348,7 @@
     return null;
   }
 
-  // === Submit ===
+  // === Submit with Retry Logic ===
   async function handleSubmit(e) {
     e.preventDefault();
     hideError();
@@ -263,23 +367,18 @@
       anlassId: el.eventIdInput.value,
       name: el.nameInput.value.trim(),
       email: el.emailInput.value.trim(),
-      telefon: el.phoneInput.value.trim()
+      telefon: el.phoneInput.value.trim(),
+      identifier: getIdentifier()
     };
 
     setSubmitLoading(true);
 
     try {
-      const response = await fetch(CONFIG.API_URL, {
-        method: 'POST',
-        redirect: 'follow',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify(data)
-      });
-
-      const result = await response.json();
+      const result = await submitWithRetry(data, 0);
 
       if (result.success) {
         showSuccess(result.message);
+        clearFormData(); // Clear saved form data on success
         resetForm();
         announce('Anmeldung erfolgreich!');
         setTimeout(loadEvents, 2000);
@@ -296,6 +395,52 @@
     }
   }
 
+  async function submitWithRetry(data, retryAttempt = 0) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
+      const response = await fetch(CONFIG.API_URL, {
+        method: 'POST',
+        redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(data),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Server-Fehler: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (!result.success && retryAttempt < MAX_RETRIES && (
+        result.message && result.message.includes('Rate limit')
+      )) {
+        // Retry on rate limit after delay
+        retryAttempt++;
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * retryAttempt * 2));
+        return submitWithRetry(data, retryAttempt);
+      }
+
+      return result;
+    } catch (error) {
+      // Retry on network errors
+      if (retryAttempt < MAX_RETRIES && (
+        error.name === 'AbortError' ||
+        error.message.includes('Failed to fetch') ||
+        error.message.includes('network')
+      )) {
+        retryAttempt++;
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * retryAttempt));
+        return submitWithRetry(data, retryAttempt);
+      }
+      throw error;
+    }
+  }
+
   function setSubmitLoading(loading) {
     el.submitBtn.disabled = loading;
     const btnContent = el.submitBtn.querySelector('.btn-content');
@@ -309,6 +454,7 @@
     el.registrationSection.hidden = true;
     selectedEvent = null;
     $$('.event-card').forEach(card => card.setAttribute('aria-selected', 'false'));
+    clearFormData();
   }
 
   window.cancelRegistration = function() {

@@ -8,28 +8,173 @@
  * 3. Zugriff: "Jeder" (nicht "Jeder mit Google-Konto")
  */
 
+// === Configuration ===
+var RATE_LIMIT_WINDOW = 60; // seconds
+var RATE_LIMIT_MAX_REQUESTS = 10; // max requests per window
+var ADMIN_EMAIL = ''; // Set this to receive notifications (optional)
+
+// === Utility Functions ===
+
+/**
+ * Sanitize input to prevent XSS
+ */
+function sanitizeInput(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/[<>]/g, '')
+    .replace(/javascript:/gi, '')
+    .replace(/on\w+=/gi, '')
+    .trim();
+}
+
+/**
+ * Parse date safely
+ */
+function parseDate(dateValue) {
+  if (!dateValue) return null;
+  try {
+    var date = new Date(dateValue);
+    if (isNaN(date.getTime())) return null;
+    return date;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Check rate limiting
+ */
+function checkRateLimit(identifier) {
+  var props = PropertiesService.getScriptProperties();
+  var key = 'rate_' + identifier;
+  var now = Math.floor(Date.now() / 1000);
+  var windowStart = now - RATE_LIMIT_WINDOW;
+  
+  var data = props.getProperty(key);
+  var requests = data ? JSON.parse(data) : [];
+  
+  // Remove old requests outside the window
+  requests = requests.filter(function(timestamp) {
+    return timestamp > windowStart;
+  });
+  
+  if (requests.length >= RATE_LIMIT_MAX_REQUESTS) {
+    return false; // Rate limit exceeded
+  }
+  
+  // Add current request
+  requests.push(now);
+  props.setProperty(key, JSON.stringify(requests));
+  return true;
+}
+
+/**
+ * Log audit trail
+ */
+function logAudit(action, data, success, error) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var logSheet = ss.getSheetByName('Audit-Log');
+    
+    if (!logSheet) {
+      logSheet = ss.insertSheet('Audit-Log');
+      logSheet.getRange(1, 1, 1, 6).setValues([
+        ['Zeitstempel', 'Aktion', 'Daten', 'Erfolg', 'Fehler', 'IP/User']
+      ]);
+      logSheet.getRange(1, 1, 1, 6).setBackground('#64748b').setFontColor('white').setFontWeight('bold');
+      logSheet.setColumnWidths(1, 1, 150);
+      logSheet.setColumnWidths(2, 1, 120);
+      logSheet.setColumnWidths(3, 1, 300);
+      logSheet.setColumnWidths(4, 1, 80);
+      logSheet.setColumnWidths(5, 1, 200);
+      logSheet.setColumnWidths(6, 1, 150);
+    }
+    
+    var dataStr = data ? JSON.stringify(data).substring(0, 500) : '';
+    var errorStr = error ? String(error).substring(0, 200) : '';
+    
+    logSheet.appendRow([
+      new Date(),
+      action,
+      dataStr,
+      success ? 'Ja' : 'Nein',
+      errorStr,
+      Session.getActiveUser().getEmail() || 'Web-App'
+    ]);
+    
+    // Keep only last 1000 entries
+    var lastRow = logSheet.getLastRow();
+    if (lastRow > 1001) {
+      logSheet.deleteRows(2, lastRow - 1001);
+    }
+  } catch (e) {
+    // Silent fail for logging
+    Logger.log('Audit logging failed: ' + e);
+  }
+}
+
+/**
+ * Send email notification
+ */
+function sendEmailNotification(to, subject, body) {
+  if (!to || !ADMIN_EMAIL) return;
+  try {
+    MailApp.sendEmail({
+      to: to,
+      subject: subject,
+      body: body,
+      htmlBody: body.replace(/\n/g, '<br>')
+    });
+  } catch (e) {
+    Logger.log('Email notification failed: ' + e);
+  }
+}
+
 // === GET Requests ===
 function doGet(e) {
   var output;
+  var identifier = e.parameter.identifier || 'anonymous';
   
   try {
+    // Rate limiting
+    if (!checkRateLimit(identifier)) {
+      logAudit('GET_RATE_LIMIT', { action: e.parameter.action }, false, 'Rate limit exceeded');
+      output = JSON.stringify({ 
+        success: false,
+        error: 'Zu viele Anfragen. Bitte versuchen Sie es später erneut.' 
+      });
+      return ContentService
+        .createTextOutput(output)
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
     var action = e.parameter.action || 'getEvents';
     
     if (action === 'getEvents') {
+      var events = getAktiveAnlaesse();
       output = JSON.stringify({ 
         success: true,
-        events: getAktiveAnlaesse() 
+        events: events 
       });
+      logAudit('GET_EVENTS', { count: events.length }, true, null);
+    } else if (action === 'export') {
+      // Data export functionality
+      var result = exportData();
+      output = JSON.stringify(result);
+      logAudit('EXPORT_DATA', {}, result.success, result.error);
     } else {
       output = JSON.stringify({ 
         success: false,
         error: 'Unbekannte Aktion' 
       });
+      logAudit('GET_UNKNOWN', { action: action }, false, 'Unknown action');
     }
   } catch (error) {
+    var errorMsg = 'Ein unerwarteter Fehler ist aufgetreten.';
+    logAudit('GET_ERROR', { action: e.parameter.action }, false, error.toString());
     output = JSON.stringify({ 
       success: false,
-      error: error.message 
+      error: errorMsg 
     });
   }
   
@@ -41,15 +186,33 @@ function doGet(e) {
 // === POST Requests ===
 function doPost(e) {
   var output;
+  var identifier = 'anonymous';
   
   try {
     var data = JSON.parse(e.postData.contents);
+    identifier = data.email || 'anonymous';
+    
+    // Rate limiting
+    if (!checkRateLimit(identifier)) {
+      logAudit('POST_RATE_LIMIT', { anlassId: data.anlassId }, false, 'Rate limit exceeded');
+      output = JSON.stringify({ 
+        success: false, 
+        message: 'Zu viele Anfragen. Bitte versuchen Sie es später erneut.' 
+      });
+      return ContentService
+        .createTextOutput(output)
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
     var result = registriereHelfer(data);
+    logAudit('REGISTRATION', { anlassId: data.anlassId, email: data.email }, result.success, result.message);
     output = JSON.stringify(result);
   } catch (error) {
+    var errorMsg = 'Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es später erneut.';
+    logAudit('POST_ERROR', {}, false, error.toString());
     output = JSON.stringify({ 
       success: false, 
-      message: 'Fehler: ' + error.message 
+      message: errorMsg 
     });
   }
   
@@ -72,17 +235,24 @@ function getAktiveAnlaesse() {
     var row = data[i];
     if (!row[0]) continue;
     
-    var datum = new Date(row[2]);
+    // Improved date parsing
+    var datum = parseDate(row[2]);
+    if (!datum) continue; // Skip invalid dates
+    
     var maxHelfer = parseInt(row[4]) || 0;
     var aktuelleHelfer = parseInt(row[5]) || 0;
     
-    if (datum >= heute && aktuelleHelfer < maxHelfer) {
+    // Normalize dates for comparison
+    var datumNormalized = new Date(datum);
+    datumNormalized.setHours(0, 0, 0, 0);
+    
+    if (datumNormalized >= heute && aktuelleHelfer < maxHelfer) {
       anlaesse.push({
         id: String(row[0]),
-        name: row[1],
+        name: sanitizeInput(row[1]),
         datum: formatDatum(datum),
-        zeit: row[3] || '',
-        beschreibung: row[6] || '',
+        zeit: sanitizeInput(row[3] || ''),
+        beschreibung: sanitizeInput(row[6] || ''),
         maxHelfer: maxHelfer,
         aktuelleHelfer: aktuelleHelfer,
         freiePlaetze: maxHelfer - aktuelleHelfer
@@ -100,17 +270,28 @@ function formatDatum(datum) {
 
 // === Register Helper ===
 function registriereHelfer(data) {
-  var anlassId = data.anlassId;
-  var name = (data.name || '').trim();
+  // Sanitize and validate input
+  var anlassId = sanitizeInput(data.anlassId);
+  var name = sanitizeInput(data.name || '');
   var email = (data.email || '').trim().toLowerCase();
-  var telefon = (data.telefon || '').trim();
+  var telefon = sanitizeInput(data.telefon || '');
   
+  // Validation
   if (!anlassId || !name || !email) {
     return { success: false, message: 'Bitte füllen Sie alle Pflichtfelder aus.' };
   }
   
+  if (name.length < 2) {
+    return { success: false, message: 'Der Name muss mindestens 2 Zeichen lang sein.' };
+  }
+  
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { success: false, message: 'Bitte geben Sie eine gültige E-Mail-Adresse ein.' };
+  }
+  
+  // Email length check
+  if (email.length > 254) {
+    return { success: false, message: 'Die E-Mail-Adresse ist zu lang.' };
   }
   
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -118,48 +299,90 @@ function registriereHelfer(data) {
   var helferSheet = ss.getSheetByName('Anmeldungen');
   
   if (!anlassSheet || !helferSheet) {
-    return { success: false, message: 'Systemfehler: Tabellenblätter nicht gefunden.' };
+    return { success: false, message: 'Der Anlass konnte nicht verarbeitet werden. Bitte versuchen Sie es später erneut.' };
   }
   
-  // Find event
-  var anlassData = anlassSheet.getDataRange().getValues();
-  var anlassRow = -1, anlassName = '', maxHelfer = 0, aktuelleHelfer = 0;
-  
-  for (var i = 1; i < anlassData.length; i++) {
-    if (String(anlassData[i][0]) == String(anlassId)) {
-      anlassRow = i + 1;
-      anlassName = anlassData[i][1];
-      maxHelfer = parseInt(anlassData[i][4]) || 0;
-      aktuelleHelfer = parseInt(anlassData[i][5]) || 0;
-      break;
+  // Use LockService to prevent race conditions
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000); // Wait up to 10 seconds
+    
+    // Find event
+    var anlassData = anlassSheet.getDataRange().getValues();
+    var anlassRow = -1, anlassName = '', maxHelfer = 0, aktuelleHelfer = 0;
+    
+    for (var i = 1; i < anlassData.length; i++) {
+      if (String(anlassData[i][0]) == String(anlassId)) {
+        anlassRow = i + 1;
+        anlassName = sanitizeInput(anlassData[i][1] || '');
+        maxHelfer = parseInt(anlassData[i][4]) || 0;
+        aktuelleHelfer = parseInt(anlassData[i][5]) || 0;
+        break;
+      }
     }
-  }
-  
-  if (anlassRow === -1) {
-    return { success: false, message: 'Der gewählte Anlass wurde nicht gefunden.' };
-  }
-  
-  if (aktuelleHelfer >= maxHelfer) {
-    return { success: false, message: 'Leider sind bereits alle Plätze vergeben.' };
-  }
-  
-  // Check for duplicate
-  var helferData = helferSheet.getDataRange().getValues();
-  for (var j = 1; j < helferData.length; j++) {
-    if (String(helferData[j][1]) == String(anlassId) && 
-        String(helferData[j][3]).toLowerCase() == email) {
-      return { success: false, message: 'Sie sind bereits für diesen Anlass angemeldet.' };
+    
+    if (anlassRow === -1) {
+      lock.releaseLock();
+      return { success: false, message: 'Der gewählte Anlass wurde nicht gefunden.' };
     }
+    
+    // Re-check capacity after lock (prevent race condition)
+    if (aktuelleHelfer >= maxHelfer) {
+      lock.releaseLock();
+      return { success: false, message: 'Leider sind bereits alle Plätze vergeben.' };
+    }
+    
+    // Improved duplicate check: name + email combination
+    var helferData = helferSheet.getDataRange().getValues();
+    for (var j = 1; j < helferData.length; j++) {
+      var existingEmail = String(helferData[j][3] || '').toLowerCase();
+      var existingName = String(helferData[j][2] || '').toLowerCase();
+      var existingAnlassId = String(helferData[j][1] || '');
+      
+      if (existingAnlassId == anlassId && 
+          existingEmail == email && 
+          existingName == name.toLowerCase()) {
+        lock.releaseLock();
+        return { success: false, message: 'Sie sind bereits für diesen Anlass angemeldet.' };
+      }
+    }
+    
+    // Register (transaction-safe)
+    helferSheet.appendRow([
+      new Date(), 
+      anlassId, 
+      name, 
+      email, 
+      telefon, 
+      anlassName
+    ]);
+    anlassSheet.getRange(anlassRow, 6).setValue(aktuelleHelfer + 1);
+    
+    lock.releaseLock();
+    
+    // Send email notifications
+    if (ADMIN_EMAIL) {
+      var emailBody = 'Neue Anmeldung für Schulhelfer:\n\n' +
+                     'Anlass: ' + anlassName + '\n' +
+                     'Name: ' + name + '\n' +
+                     'E-Mail: ' + email + '\n' +
+                     (telefon ? 'Telefon: ' + telefon + '\n' : '') +
+                     'Datum: ' + new Date().toLocaleString('de-CH');
+      
+      sendEmailNotification(ADMIN_EMAIL, 'Neue Anmeldung: ' + anlassName, emailBody);
+    }
+    
+    return { 
+      success: true, 
+      message: 'Vielen Dank, ' + name + '! Sie sind für «' + anlassName + '» angemeldet.' 
+    };
+    
+  } catch (e) {
+    if (lock.hasLock()) {
+      lock.releaseLock();
+    }
+    return { success: false, message: 'Ein Fehler ist aufgetreten. Bitte versuchen Sie es erneut.' };
   }
-  
-  // Register
-  helferSheet.appendRow([new Date(), anlassId, name, email, telefon, anlassName]);
-  anlassSheet.getRange(anlassRow, 6).setValue(aktuelleHelfer + 1);
-  
-  return { 
-    success: true, 
-    message: 'Vielen Dank, ' + name + '! Sie sind für «' + anlassName + '» angemeldet.' 
-  };
 }
 
 // === Setup ===
@@ -211,12 +434,74 @@ function erstesSetup() {
   );
 }
 
+// === Export Data ===
+function exportData() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var anlassSheet = ss.getSheetByName('Anlässe');
+    var helferSheet = ss.getSheetByName('Anmeldungen');
+    
+    if (!anlassSheet || !helferSheet) {
+      return { success: false, error: 'Tabellenblätter nicht gefunden' };
+    }
+    
+    var anlaesse = anlassSheet.getDataRange().getValues();
+    var anmeldungen = helferSheet.getDataRange().getValues();
+    
+    // Convert to CSV format
+    var csv = '';
+    
+    // Export Anlässe
+    csv += '=== ANLÄSSE ===\n';
+    for (var i = 0; i < anlaesse.length; i++) {
+      csv += anlaesse[i].join(',') + '\n';
+    }
+    
+    csv += '\n=== ANMELDUNGEN ===\n';
+    for (var j = 0; j < anmeldungen.length; j++) {
+      csv += anmeldungen[j].join(',') + '\n';
+    }
+    
+    return { success: true, data: csv };
+  } catch (e) {
+    return { success: false, error: e.toString() };
+  }
+}
+
+function exportDataAsCSV() {
+  var result = exportData();
+  if (result.success) {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var exportSheet = ss.getSheetByName('Export') || ss.insertSheet('Export');
+    exportSheet.clear();
+    
+    var lines = result.data.split('\n');
+    var data = [];
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i]) {
+        data.push([lines[i]]);
+      }
+    }
+    
+    if (data.length > 0) {
+      exportSheet.getRange(1, 1, data.length, 1).setValues(data);
+      ss.setActiveSheet(exportSheet);
+      SpreadsheetApp.getUi().alert('Export erfolgreich! Die Daten wurden im Tab "Export" gespeichert.');
+    }
+  } else {
+    SpreadsheetApp.getUi().alert('Fehler beim Export: ' + result.error);
+  }
+}
+
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('🏰 Schulhelfer')
     .addItem('Erstes Setup', 'erstesSetup')
     .addItem('Neuer Anlass hinzufügen', 'neuerAnlassDialog')
     .addSeparator()
     .addItem('Alle Anmeldungen anzeigen', 'zeigeAnmeldungen')
+    .addItem('Daten exportieren (CSV)', 'exportDataAsCSV')
+    .addSeparator()
+    .addItem('Audit-Log anzeigen', 'zeigeAuditLog')
     .addToUi();
 }
 
@@ -225,6 +510,16 @@ function zeigeAnmeldungen() {
   var sheet = ss.getSheetByName('Anmeldungen');
   if (sheet) {
     ss.setActiveSheet(sheet);
+  }
+}
+
+function zeigeAuditLog() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Audit-Log');
+  if (sheet) {
+    ss.setActiveSheet(sheet);
+  } else {
+    SpreadsheetApp.getUi().alert('Noch keine Audit-Logs vorhanden.');
   }
 }
 
@@ -294,6 +589,22 @@ function anlassHinzufuegen(data) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Anlässe');
   var values = sheet.getDataRange().getValues();
   
+  // Sanitize input
+  var name = sanitizeInput(data.name || '');
+  var zeit = sanitizeInput(data.zeit || '');
+  var beschreibung = sanitizeInput(data.beschreibung || '');
+  var helfer = parseInt(data.helfer) || 0;
+  
+  if (!name || helfer < 1) {
+    throw new Error('Bitte füllen Sie alle Pflichtfelder aus.');
+  }
+  
+  // Validate date
+  var datum = parseDate(data.datum);
+  if (!datum) {
+    throw new Error('Ungültiges Datum.');
+  }
+  
   // Find max ID
   var maxId = 0;
   for (var i = 1; i < values.length; i++) { 
@@ -303,11 +614,13 @@ function anlassHinzufuegen(data) {
   
   sheet.appendRow([
     maxId + 1, 
-    data.name, 
-    new Date(data.datum), 
-    data.zeit || '', 
-    parseInt(data.helfer), 
+    name, 
+    datum, 
+    zeit, 
+    helfer, 
     0, 
-    data.beschreibung || ''
+    beschreibung
   ]);
+  
+  logAudit('ANLASS_HINZUGEFUEGT', { name: name, datum: datum }, true, null);
 }
