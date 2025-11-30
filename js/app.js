@@ -153,9 +153,18 @@
     const badgeText = event.freiePlaetze <= 1 ? 'Letzter Platz!' : 
                       event.freiePlaetze <= 3 ? `Nur ${event.freiePlaetze} Plätze` : `${event.freiePlaetze} Plätze frei`;
     
+    // Parse date for calendar
+    const eventDate = parseEventDate(event.datum);
+    const eventTime = parseEventTime(event.zeit);
+    
     return `
       <article class="event-card" role="listitem" tabindex="0"
-        data-id="${esc(event.id)}" data-name="${esc(event.name)}" aria-selected="false">
+        data-id="${esc(event.id)}" 
+        data-name="${esc(event.name)}" 
+        data-date="${eventDate ? eventDate.toISOString() : ''}"
+        data-time="${eventTime ? JSON.stringify(eventTime) : ''}"
+        data-description="${esc(event.beschreibung || '')}"
+        aria-selected="false">
         <div class="event-header">
           <h3 class="event-name">${esc(event.name)}</h3>
           <span class="event-badge ${badgeClass}">${badgeText}</span>
@@ -183,14 +192,178 @@
           </span>
         </div>
         ${event.beschreibung ? `<p class="event-description">${esc(event.beschreibung)}</p>` : ''}
-        <div class="event-cta" aria-hidden="true">
-          <span>Jetzt anmelden</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="9 18 15 12 9 6"/>
-          </svg>
+        <div class="event-actions">
+          <div class="event-cta" aria-hidden="true">
+            <span>Jetzt anmelden</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </div>
+          <button type="button" class="calendar-download-btn" 
+            onclick="event.stopPropagation(); downloadCalendarEvent(this.closest('.event-card')));"
+            aria-label="Anlass zum Kalender hinzufügen">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            <span>Kalender</span>
+          </button>
         </div>
       </article>`;
   }
+  
+  // Parse German date string to Date object
+  function parseEventDate(dateStr) {
+    if (!dateStr) return null;
+    try {
+      // Format: "Montag, 15. Juli 2025"
+      const months = {
+        'januar': 0, 'februar': 1, 'märz': 2, 'april': 3, 'mai': 4, 'juni': 5,
+        'juli': 6, 'august': 7, 'september': 8, 'oktober': 9, 'november': 10, 'dezember': 11
+      };
+      
+      const match = dateStr.match(/(\d+)\.\s+(\w+)\s+(\d+)/i);
+      if (match) {
+        const day = parseInt(match[1]);
+        const monthName = match[2].toLowerCase();
+        const year = parseInt(match[3]);
+        const month = months[monthName];
+        
+        if (month !== undefined) {
+          return new Date(year, month, day);
+        }
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+  
+  // Parse time string (e.g., "14:00-18:00")
+  function parseEventTime(timeStr) {
+    if (!timeStr) return null;
+    try {
+      const match = timeStr.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
+      if (match) {
+        return {
+          start: { hour: parseInt(match[1]), minute: parseInt(match[2]) },
+          end: { hour: parseInt(match[3]), minute: parseInt(match[4]) }
+        };
+      }
+      // Try single time
+      const singleMatch = timeStr.match(/(\d{1,2}):(\d{2})/);
+      if (singleMatch) {
+        const hour = parseInt(singleMatch[1]);
+        const minute = parseInt(singleMatch[2]);
+        return {
+          start: { hour, minute },
+          end: { hour: hour + 2, minute } // Default 2 hour duration
+        };
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+  
+  // Generate iCal file
+  function generateICal(eventCard) {
+    const name = eventCard.dataset.name;
+    const dateStr = eventCard.dataset.date;
+    const timeStr = eventCard.dataset.time;
+    const description = eventCard.dataset.description || '';
+    
+    if (!dateStr) return null;
+    
+    const eventDate = new Date(dateStr);
+    const eventTime = timeStr ? JSON.parse(timeStr) : null;
+    
+    // Set start time
+    const start = new Date(eventDate);
+    if (eventTime) {
+      start.setHours(eventTime.start.hour, eventTime.start.minute, 0, 0);
+    } else {
+      start.setHours(10, 0, 0, 0); // Default 10:00
+    }
+    
+    // Set end time
+    const end = new Date(start);
+    if (eventTime) {
+      end.setHours(eventTime.end.hour, eventTime.end.minute, 0, 0);
+    } else {
+      end.setHours(start.getHours() + 2, 0, 0, 0); // Default 2 hours
+    }
+    
+    // Format dates for iCal (YYYYMMDDTHHMMSSZ)
+    function formatICalDate(date) {
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const hours = String(date.getUTCHours()).padStart(2, '0');
+      const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+      const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+      return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
+    }
+    
+    const startStr = formatICalDate(start);
+    const endStr = formatICalDate(end);
+    const nowStr = formatICalDate(new Date());
+    
+    // Escape text for iCal
+    function escapeICal(text) {
+      return String(text)
+        .replace(/\\/g, '\\\\')
+        .replace(/;/g, '\\;')
+        .replace(/,/g, '\\,')
+        .replace(/\n/g, '\\n');
+    }
+    
+    const ical = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Schulhelfer Rittergasse//DE',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      'BEGIN:VEVENT',
+      `UID:${Date.now()}-${Math.random().toString(36).substr(2, 9)}@schulhelfer-rittergasse`,
+      `DTSTAMP:${nowStr}`,
+      `DTSTART:${startStr}`,
+      `DTEND:${endStr}`,
+      `SUMMARY:${escapeICal(name)}`,
+      `DESCRIPTION:${escapeICal(description || 'Schulhelfer Anlass')}`,
+      `LOCATION:Primarstufe Rittergasse Basel`,
+      'STATUS:CONFIRMED',
+      'SEQUENCE:0',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+    
+    return ical;
+  }
+  
+  // Download calendar event
+  window.downloadCalendarEvent = function(eventCard) {
+    const ical = generateICal(eventCard);
+    if (!ical) {
+      showError('Kalender-Download nicht möglich. Bitte versuchen Sie es später erneut.');
+      return;
+    }
+    
+    const name = eventCard.dataset.name;
+    const blob = new Blob([ical], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${name.replace(/[^a-z0-9]/gi, '_')}.ics`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    announce(`Kalender-Eintrag für "${name}" wurde heruntergeladen`);
+  };
 
   // === Event Selection ===
   function handleEventClick(e) {
