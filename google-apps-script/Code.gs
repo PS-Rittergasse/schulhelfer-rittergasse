@@ -116,18 +116,140 @@ function logAudit(action, data, success, error) {
 /**
  * Send email notification
  */
-function sendEmailNotification(to, subject, body) {
-  if (!to || !ADMIN_EMAIL) return;
+function sendEmailNotification(to, subject, body, htmlBody) {
+  if (!to) return;
   try {
     MailApp.sendEmail({
       to: to,
       subject: subject,
       body: body,
-      htmlBody: body.replace(/\n/g, '<br>')
+      htmlBody: htmlBody || body.replace(/\n/g, '<br>')
     });
   } catch (e) {
     Logger.log('Email notification failed: ' + e);
   }
+}
+
+/**
+ * Generate cancellation token
+ */
+function generateCancellationToken(email, anlassId) {
+  var data = email + '|' + anlassId + '|' + Date.now();
+  return Utilities.base64EncodeWebSafe(data);
+}
+
+/**
+ * Parse cancellation token
+ */
+function parseCancellationToken(token) {
+  try {
+    var decoded = Utilities.newBlob(Utilities.base64DecodeWebSafe(token)).getDataAsString();
+    var parts = decoded.split('|');
+    if (parts.length >= 2) {
+      return { email: parts[0], anlassId: parts[1] };
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Send confirmation email to user
+ */
+function sendUserConfirmation(email, name, anlassName, datum, zeit, cancellationToken) {
+  var subject = '✓ Anmeldung bestätigt: ' + anlassName;
+  
+  var htmlBody = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #1a202c; margin: 0; padding: 0; }
+    .container { max-width: 600px; margin: 0 auto; padding: 32px 24px; }
+    .header { text-align: center; padding-bottom: 24px; border-bottom: 2px solid #e2e8f0; margin-bottom: 24px; }
+    .logo { font-size: 48px; margin-bottom: 8px; }
+    .title { font-size: 24px; font-weight: 700; color: #1a365d; margin: 0; }
+    .subtitle { font-size: 14px; color: #718096; margin-top: 4px; }
+    .success { background: #c6f6d5; border-left: 4px solid #276749; padding: 16px 20px; border-radius: 8px; margin-bottom: 24px; }
+    .success h2 { color: #22543d; font-size: 18px; margin: 0 0 8px 0; }
+    .success p { color: #276749; margin: 0; }
+    .details { background: #f7fafc; border-radius: 8px; padding: 20px; margin-bottom: 24px; }
+    .details h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: #718096; margin: 0 0 12px 0; }
+    .detail-row { display: flex; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-label { font-weight: 600; color: #4a5568; width: 120px; flex-shrink: 0; }
+    .detail-value { color: #1a202c; }
+    .cancel-section { text-align: center; padding: 24px; background: #fff5f5; border-radius: 8px; margin-top: 24px; }
+    .cancel-section p { font-size: 14px; color: #742a2a; margin: 0 0 12px 0; }
+    .cancel-link { color: #c53030; font-size: 12px; }
+    .footer { text-align: center; padding-top: 24px; border-top: 1px solid #e2e8f0; margin-top: 32px; }
+    .footer p { font-size: 12px; color: #a0aec0; margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">🏰</div>
+      <h1 class="title">Primarstufe Rittergasse</h1>
+      <p class="subtitle">Kindergarten & Primarschule Basel</p>
+    </div>
+    
+    <div class="success">
+      <h2>✓ Anmeldung bestätigt!</h2>
+      <p>Vielen Dank, ${name}! Ihre Anmeldung wurde erfolgreich registriert.</p>
+    </div>
+    
+    <div class="details">
+      <h3>Ihre Anmeldung</h3>
+      <div class="detail-row">
+        <span class="detail-label">Anlass:</span>
+        <span class="detail-value"><strong>${anlassName}</strong></span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Datum:</span>
+        <span class="detail-value">${datum}</span>
+      </div>
+      ${zeit ? `<div class="detail-row">
+        <span class="detail-label">Zeit:</span>
+        <span class="detail-value">${zeit}</span>
+      </div>` : ''}
+      <div class="detail-row">
+        <span class="detail-label">Angemeldet als:</span>
+        <span class="detail-value">${name}</span>
+      </div>
+    </div>
+    
+    <p style="font-size: 14px; color: #4a5568;">
+      Wir freuen uns auf Ihre Unterstützung! Bei Fragen wenden Sie sich bitte an die Schulleitung.
+    </p>
+    
+    <div class="cancel-section">
+      <p>Falls Sie nicht teilnehmen können, können Sie Ihre Anmeldung hier stornieren:</p>
+      <a href="CANCEL_URL_PLACEHOLDER?action=cancel&token=${cancellationToken}" class="cancel-link">
+        Anmeldung stornieren
+      </a>
+    </div>
+    
+    <div class="footer">
+      <p>Primarstufe Rittergasse Basel<br>
+      Diese E-Mail wurde automatisch generiert.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  var textBody = 'Anmeldung bestätigt: ' + anlassName + '\n\n' +
+                 'Vielen Dank, ' + name + '!\n\n' +
+                 'Ihre Anmeldung wurde erfolgreich registriert.\n\n' +
+                 'Anlass: ' + anlassName + '\n' +
+                 'Datum: ' + datum + '\n' +
+                 (zeit ? 'Zeit: ' + zeit + '\n' : '') +
+                 '\nWir freuen uns auf Ihre Unterstützung!\n\n' +
+                 'Primarstufe Rittergasse Basel';
+
+  sendEmailNotification(email, subject, textBody, htmlBody);
 }
 
 // === GET Requests ===
@@ -157,6 +279,11 @@ function doGet(e) {
         events: events 
       });
       logAudit('GET_EVENTS', { count: events.length }, true, null);
+    } else if (action === 'cancel') {
+      var token = e.parameter.token;
+      var result = cancelRegistration(token);
+      output = JSON.stringify(result);
+      logAudit('CANCEL_REGISTRATION', { token: token }, result.success, result.message);
     } else if (action === 'export') {
       // Data export functionality
       var result = exportData();
@@ -360,7 +487,27 @@ function registriereHelfer(data) {
     
     lock.releaseLock();
     
-    // Send email notifications
+    // Get event date and time for confirmation email
+    var eventDatum = '';
+    var eventZeit = '';
+    for (var k = 1; k < anlassData.length; k++) {
+      if (String(anlassData[k][0]) == String(anlassId)) {
+        var datumValue = anlassData[k][2];
+        if (datumValue) {
+          eventDatum = formatDatum(new Date(datumValue));
+        }
+        eventZeit = anlassData[k][3] || '';
+        break;
+      }
+    }
+    
+    // Generate cancellation token
+    var cancellationToken = generateCancellationToken(email, anlassId);
+    
+    // Send confirmation email to user
+    sendUserConfirmation(email, name, anlassName, eventDatum, eventZeit, cancellationToken);
+    
+    // Send email notification to admin
     if (ADMIN_EMAIL) {
       var emailBody = 'Neue Anmeldung für Schulhelfer:\n\n' +
                      'Anlass: ' + anlassName + '\n' +
@@ -374,7 +521,87 @@ function registriereHelfer(data) {
     
     return { 
       success: true, 
-      message: 'Vielen Dank, ' + name + '! Sie sind für «' + anlassName + '» angemeldet.' 
+      message: 'Vielen Dank, ' + name + '! Sie sind für «' + anlassName + '» angemeldet. Eine Bestätigung wurde an ' + email + ' gesendet.' 
+    };
+    
+  } catch (e) {
+    if (lock.hasLock()) {
+      lock.releaseLock();
+    }
+    return { success: false, message: 'Ein Fehler ist aufgetreten. Bitte versuchen Sie es erneut.' };
+  }
+}
+
+// === Cancel Registration ===
+function cancelRegistration(token) {
+  if (!token) {
+    return { success: false, message: 'Ungültiger Stornierungslink.' };
+  }
+  
+  var tokenData = parseCancellationToken(token);
+  if (!tokenData) {
+    return { success: false, message: 'Ungültiger oder abgelaufener Stornierungslink.' };
+  }
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var helferSheet = ss.getSheetByName('Anmeldungen');
+  var anlassSheet = ss.getSheetByName('Anlässe');
+  
+  if (!helferSheet || !anlassSheet) {
+    return { success: false, message: 'Systemfehler. Bitte kontaktieren Sie die Schulleitung.' };
+  }
+  
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    
+    var helferData = helferSheet.getDataRange().getValues();
+    var rowToDelete = -1;
+    var anlassId = '';
+    var anlassName = '';
+    var helferName = '';
+    
+    for (var i = 1; i < helferData.length; i++) {
+      var rowEmail = String(helferData[i][3] || '').toLowerCase();
+      var rowAnlassId = String(helferData[i][1] || '');
+      
+      if (rowEmail == tokenData.email.toLowerCase() && rowAnlassId == tokenData.anlassId) {
+        rowToDelete = i + 1; // 1-based row number
+        anlassId = rowAnlassId;
+        anlassName = helferData[i][5] || '';
+        helferName = helferData[i][2] || '';
+        break;
+      }
+    }
+    
+    if (rowToDelete === -1) {
+      lock.releaseLock();
+      return { success: false, message: 'Diese Anmeldung wurde nicht gefunden oder wurde bereits storniert.' };
+    }
+    
+    // Delete the registration row
+    helferSheet.deleteRow(rowToDelete);
+    
+    // Update the helper count in Anlässe
+    var anlassData = anlassSheet.getDataRange().getValues();
+    for (var j = 1; j < anlassData.length; j++) {
+      if (String(anlassData[j][0]) == anlassId) {
+        var currentCount = parseInt(anlassData[j][5]) || 0;
+        if (currentCount > 0) {
+          anlassSheet.getRange(j + 1, 6).setValue(currentCount - 1);
+        }
+        break;
+      }
+    }
+    
+    lock.releaseLock();
+    
+    // Log the cancellation
+    logAudit('REGISTRATION_CANCELLED', { email: tokenData.email, anlassId: anlassId, name: helferName }, true, null);
+    
+    return { 
+      success: true, 
+      message: 'Ihre Anmeldung für «' + anlassName + '» wurde erfolgreich storniert. Vielen Dank für die Rückmeldung!' 
     };
     
   } catch (e) {

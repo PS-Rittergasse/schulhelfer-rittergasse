@@ -31,6 +31,7 @@
 
   let events = [];
   let selectedEvent = null;
+  let lastRegistration = null; // Store last successful registration
   let retryCount = 0;
   const MAX_RETRIES = 3;
   const RETRY_DELAY = 1000; // ms
@@ -167,6 +168,9 @@
     const eventDate = parseEventDate(event.datum);
     const eventTime = parseEventTime(event.zeit);
     
+    // Calculate countdown
+    const countdown = getCountdown(eventDate);
+    
     return `
       <article class="event-card" role="listitem" tabindex="0"
         data-id="${esc(event.id)}" 
@@ -175,6 +179,12 @@
         data-time="${eventTime ? JSON.stringify(eventTime) : ''}"
         data-description="${esc(event.beschreibung || '')}"
         aria-selected="false">
+        ${countdown ? `<div class="event-countdown">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+          <span>${countdown}</span>
+        </div>` : ''}
         <div class="event-header">
           <h3 class="event-name">${esc(event.name)}</h3>
           <span class="event-badge ${badgeClass}">${badgeText}</span>
@@ -210,7 +220,7 @@
             </svg>
           </div>
           <button type="button" class="calendar-download-btn" 
-            onclick="event.stopPropagation(); downloadCalendarEvent(this.closest('.event-card')));"
+            onclick="event.stopPropagation(); downloadCalendarEvent(this.closest('.event-card'));"
             aria-label="Anlass zum Kalender hinzufügen">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -265,6 +275,30 @@
     }
   }
   
+  // Calculate countdown text
+  function getCountdown(eventDate) {
+    if (!eventDate || isNaN(eventDate.getTime())) return null;
+    
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    
+    const target = new Date(eventDate);
+    target.setHours(0, 0, 0, 0);
+    
+    const diffTime = target - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) return null;
+    if (diffDays === 0) return 'Heute!';
+    if (diffDays === 1) return 'Morgen';
+    if (diffDays <= 7) return `In ${diffDays} Tagen`;
+    if (diffDays <= 14) return 'In 2 Wochen';
+    if (diffDays <= 21) return 'In 3 Wochen';
+    if (diffDays <= 30) return 'In ca. 1 Monat';
+    if (diffDays <= 60) return 'In ca. 2 Monaten';
+    return null;
+  }
+
   // Parse time string (e.g., "14:00-18:00")
   function parseEventTime(timeStr) {
     if (!timeStr) return null;
@@ -632,7 +666,17 @@
       const result = await submitWithRetry(data, 0);
 
       if (result.success) {
-        showSuccess(result.message);
+        // Store registration data for calendar download
+        lastRegistration = {
+          name: data.name,
+          eventId: data.anlassId,
+          eventName: selectedEvent ? selectedEvent.name : '',
+          eventDate: selectedEvent ? selectedEvent.datum : '',
+          eventTime: selectedEvent ? selectedEvent.zeit : '',
+          eventDescription: selectedEvent ? selectedEvent.beschreibung : ''
+        };
+        
+        showSuccess(result.message, lastRegistration);
         clearFormData(); // Clear saved form data on success
         resetForm();
         announce('Anmeldung erfolgreich!');
@@ -734,10 +778,131 @@
   function hideError() { el.errorMessage.hidden = true; }
   window.closeError = hideError;
 
-  function showSuccess(msg) {
+  function showSuccess(msg, registrationData = null) {
     el.successText.textContent = msg;
+    
+    // Add calendar download button if registration data is available
+    let calendarBtn = el.successMessage.querySelector('.calendar-download-success');
+    if (registrationData) {
+      if (!calendarBtn) {
+        calendarBtn = document.createElement('button');
+        calendarBtn.className = 'calendar-download-success';
+        calendarBtn.type = 'button';
+        calendarBtn.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="16" y1="2" x2="16" y2="6"></line>
+            <line x1="8" y1="2" x2="8" y2="6"></line>
+            <line x1="3" y1="10" x2="21" y2="10"></line>
+          </svg>
+          <span>Kalender-Eintrag herunterladen</span>
+        `;
+        calendarBtn.addEventListener('click', () => {
+          downloadRegistrationCalendar(registrationData);
+        });
+        el.successMessage.querySelector('.message-content').appendChild(calendarBtn);
+      }
+      calendarBtn.hidden = false;
+    } else if (calendarBtn) {
+      calendarBtn.hidden = true;
+    }
+    
     el.successMessage.hidden = false;
     el.successMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  
+  // Download calendar for registered event
+  function downloadRegistrationCalendar(registration) {
+    try {
+      const eventDate = parseEventDate(registration.eventDate);
+      if (!eventDate) {
+        showError('Kalender-Download nicht möglich. Das Datum konnte nicht erkannt werden.');
+        return;
+      }
+      
+      const eventTime = parseEventTime(registration.eventTime);
+      
+      // Set start time
+      const start = new Date(eventDate);
+      if (eventTime && eventTime.start) {
+        start.setHours(eventTime.start.hour, eventTime.start.minute, 0, 0);
+      } else {
+        start.setHours(10, 0, 0, 0); // Default 10:00
+      }
+      
+      // Set end time
+      const end = new Date(start);
+      if (eventTime && eventTime.end) {
+        end.setHours(eventTime.end.hour, eventTime.end.minute, 0, 0);
+      } else {
+        end.setHours(start.getHours() + 2, 0, 0, 0); // Default 2 hours
+      }
+      
+      // Format dates for iCal (YYYYMMDDTHHMMSSZ) - UTC format
+      function formatICalDate(date) {
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        const hours = String(date.getUTCHours()).padStart(2, '0');
+        const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+        const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+        return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
+      }
+      
+      const startStr = formatICalDate(start);
+      const endStr = formatICalDate(end);
+      const nowStr = formatICalDate(new Date());
+      
+      // Escape text for iCal
+      function escapeICal(text) {
+        if (!text) return '';
+        return String(text)
+          .replace(/\\/g, '\\\\')
+          .replace(/;/g, '\\;')
+          .replace(/,/g, '\\,')
+          .replace(/\n/g, '\\n')
+          .replace(/\r/g, '');
+      }
+      
+      const eventName = registration.eventName || 'Schulhelfer Anlass';
+      const description = `Schulhelfer Anlass: ${eventName}\n\nAngemeldet als: ${registration.name}\n\n${registration.eventDescription || 'Primarstufe Rittergasse Basel'}`;
+      
+      const ical = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//Schulhelfer Rittergasse//DE',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+        'BEGIN:VEVENT',
+        `UID:${Date.now()}-${Math.random().toString(36).substr(2, 9)}@schulhelfer-rittergasse`,
+        `DTSTAMP:${nowStr}`,
+        `DTSTART:${startStr}`,
+        `DTEND:${endStr}`,
+        `SUMMARY:${escapeICal(eventName)} - ${escapeICal(registration.name)}`,
+        `DESCRIPTION:${escapeICal(description)}`,
+        `LOCATION:Primarstufe Rittergasse Basel`,
+        'STATUS:CONFIRMED',
+        'SEQUENCE:0',
+        'END:VEVENT',
+        'END:VCALENDAR'
+      ].join('\r\n');
+      
+      const blob = new Blob([ical], { type: 'text/calendar;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${eventName.replace(/[^a-z0-9äöüÄÖÜß]/gi, '_')}_${registration.name.replace(/[^a-z0-9äöüÄÖÜß]/gi, '_')}.ics`;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      announce(`Kalender-Eintrag für "${eventName}" wurde heruntergeladen`);
+    } catch (error) {
+      console.error('Error downloading calendar:', error);
+      showError('Fehler beim Herunterladen des Kalenders. Bitte versuchen Sie es erneut.');
+    }
   }
 
   function hideSuccess() { el.successMessage.hidden = true; }
