@@ -57,6 +57,16 @@
     setupKeyboardNavigation();
     restoreFormData();
     setupFormPersistence();
+    setupSpreadsheetLink();
+  }
+  
+  // Setup spreadsheet link
+  function setupSpreadsheetLink() {
+    const link = $('#spreadsheet-link');
+    if (link && CONFIG.SPREADSHEET_URL && CONFIG.SPREADSHEET_URL.trim() !== '') {
+      link.href = CONFIG.SPREADSHEET_URL;
+      link.style.display = 'inline-flex';
+    }
   }
 
   // === Load Events with Retry Logic ===
@@ -218,25 +228,39 @@
   function parseEventDate(dateStr) {
     if (!dateStr) return null;
     try {
-      // Format: "Montag, 15. Juli 2025"
+      // Format: "Montag, 15. Juli 2025" or "15. Juli 2025"
       const months = {
         'januar': 0, 'februar': 1, 'märz': 2, 'april': 3, 'mai': 4, 'juni': 5,
         'juli': 6, 'august': 7, 'september': 8, 'oktober': 9, 'november': 10, 'dezember': 11
       };
       
-      const match = dateStr.match(/(\d+)\.\s+(\w+)\s+(\d+)/i);
+      // Try to match the date pattern (day. month year) - handles "Montag, 15. Juli 2025"
+      const match = dateStr.match(/(\d{1,2})\.\s+(\w+)\s+(\d{4})/i);
       if (match) {
-        const day = parseInt(match[1]);
-        const monthName = match[2].toLowerCase();
-        const year = parseInt(match[3]);
+        const day = parseInt(match[1], 10);
+        const monthName = match[2].toLowerCase().trim();
+        const year = parseInt(match[3], 10);
         const month = months[monthName];
         
-        if (month !== undefined) {
-          return new Date(year, month, day);
+        if (month !== undefined && !isNaN(day) && !isNaN(year) && day > 0 && day <= 31) {
+          const date = new Date(year, month, day);
+          // Verify the date is valid
+          if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
+            return date;
+          }
         }
       }
+      
+      // Fallback: try to parse as standard date string
+      const fallbackDate = new Date(dateStr);
+      if (!isNaN(fallbackDate.getTime())) {
+        return fallbackDate;
+      }
+      
+      console.warn('Could not parse date:', dateStr);
       return null;
     } catch (e) {
+      console.error('Date parsing error:', e, dateStr);
       return null;
     }
   }
@@ -270,99 +294,157 @@
   
   // Generate iCal file
   function generateICal(eventCard) {
-    const name = eventCard.dataset.name;
-    const dateStr = eventCard.dataset.date;
-    const timeStr = eventCard.dataset.time;
-    const description = eventCard.dataset.description || '';
-    
-    if (!dateStr) return null;
-    
-    const eventDate = new Date(dateStr);
-    const eventTime = timeStr ? JSON.parse(timeStr) : null;
-    
-    // Set start time
-    const start = new Date(eventDate);
-    if (eventTime) {
-      start.setHours(eventTime.start.hour, eventTime.start.minute, 0, 0);
-    } else {
-      start.setHours(10, 0, 0, 0); // Default 10:00
+    try {
+      const name = eventCard.dataset.name;
+      const dateStr = eventCard.dataset.date;
+      const timeStr = eventCard.dataset.time;
+      const description = eventCard.dataset.description || '';
+      
+      if (!name) {
+        console.error('No event name found');
+        return null;
+      }
+      
+      // Try to get date from data attribute first
+      let eventDate = null;
+      if (dateStr) {
+        eventDate = new Date(dateStr);
+        if (isNaN(eventDate.getTime())) {
+          eventDate = null;
+        }
+      }
+      
+      // If no valid date from data attribute, try to parse from the displayed date
+      if (!eventDate) {
+        const dateElement = eventCard.querySelector('.event-meta-item span');
+        if (dateElement) {
+          const displayedDate = dateElement.textContent.trim();
+          eventDate = parseEventDate(displayedDate);
+        }
+      }
+      
+      if (!eventDate || isNaN(eventDate.getTime())) {
+        console.error('Could not parse event date', dateStr);
+        return null;
+      }
+      
+      // Parse time
+      let eventTime = null;
+      if (timeStr && timeStr !== 'null' && timeStr !== '') {
+        try {
+          eventTime = JSON.parse(timeStr);
+        } catch (e) {
+          // Try to parse from displayed time
+          const timeElements = eventCard.querySelectorAll('.event-meta-item');
+          if (timeElements.length > 1) {
+            const timeText = timeElements[1].textContent.trim();
+            eventTime = parseEventTime(timeText);
+          }
+        }
+      } else {
+        // Try to parse from displayed time
+        const timeElements = eventCard.querySelectorAll('.event-meta-item');
+        if (timeElements.length > 1) {
+          const timeText = timeElements[1].textContent.trim();
+          eventTime = parseEventTime(timeText);
+        }
+      }
+      
+      // Set start time
+      const start = new Date(eventDate);
+      if (eventTime && eventTime.start) {
+        start.setHours(eventTime.start.hour, eventTime.start.minute, 0, 0);
+      } else {
+        start.setHours(10, 0, 0, 0); // Default 10:00
+      }
+      
+      // Set end time
+      const end = new Date(start);
+      if (eventTime && eventTime.end) {
+        end.setHours(eventTime.end.hour, eventTime.end.minute, 0, 0);
+      } else {
+        end.setHours(start.getHours() + 2, 0, 0, 0); // Default 2 hours
+      }
+      
+      // Format dates for iCal (YYYYMMDDTHHMMSSZ) - UTC format
+      function formatICalDate(date) {
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        const hours = String(date.getUTCHours()).padStart(2, '0');
+        const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+        const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+        return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
+      }
+      
+      const startStr = formatICalDate(start);
+      const endStr = formatICalDate(end);
+      const nowStr = formatICalDate(new Date());
+      
+      // Escape text for iCal
+      function escapeICal(text) {
+        if (!text) return '';
+        return String(text)
+          .replace(/\\/g, '\\\\')
+          .replace(/;/g, '\\;')
+          .replace(/,/g, '\\,')
+          .replace(/\n/g, '\\n')
+          .replace(/\r/g, '');
+      }
+      
+      const ical = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//Schulhelfer Rittergasse//DE',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+        'BEGIN:VEVENT',
+        `UID:${Date.now()}-${Math.random().toString(36).substr(2, 9)}@schulhelfer-rittergasse`,
+        `DTSTAMP:${nowStr}`,
+        `DTSTART:${startStr}`,
+        `DTEND:${endStr}`,
+        `SUMMARY:${escapeICal(name)}`,
+        `DESCRIPTION:${escapeICal(description || 'Schulhelfer Anlass - Primarstufe Rittergasse Basel')}`,
+        `LOCATION:Primarstufe Rittergasse Basel`,
+        'STATUS:CONFIRMED',
+        'SEQUENCE:0',
+        'END:VEVENT',
+        'END:VCALENDAR'
+      ].join('\r\n');
+      
+      return ical;
+    } catch (error) {
+      console.error('Error generating iCal:', error);
+      return null;
     }
-    
-    // Set end time
-    const end = new Date(start);
-    if (eventTime) {
-      end.setHours(eventTime.end.hour, eventTime.end.minute, 0, 0);
-    } else {
-      end.setHours(start.getHours() + 2, 0, 0, 0); // Default 2 hours
-    }
-    
-    // Format dates for iCal (YYYYMMDDTHHMMSSZ)
-    function formatICalDate(date) {
-      const year = date.getUTCFullYear();
-      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(date.getUTCDate()).padStart(2, '0');
-      const hours = String(date.getUTCHours()).padStart(2, '0');
-      const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-      const seconds = String(date.getUTCSeconds()).padStart(2, '0');
-      return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
-    }
-    
-    const startStr = formatICalDate(start);
-    const endStr = formatICalDate(end);
-    const nowStr = formatICalDate(new Date());
-    
-    // Escape text for iCal
-    function escapeICal(text) {
-      return String(text)
-        .replace(/\\/g, '\\\\')
-        .replace(/;/g, '\\;')
-        .replace(/,/g, '\\,')
-        .replace(/\n/g, '\\n');
-    }
-    
-    const ical = [
-      'BEGIN:VCALENDAR',
-      'VERSION:2.0',
-      'PRODID:-//Schulhelfer Rittergasse//DE',
-      'CALSCALE:GREGORIAN',
-      'METHOD:PUBLISH',
-      'BEGIN:VEVENT',
-      `UID:${Date.now()}-${Math.random().toString(36).substr(2, 9)}@schulhelfer-rittergasse`,
-      `DTSTAMP:${nowStr}`,
-      `DTSTART:${startStr}`,
-      `DTEND:${endStr}`,
-      `SUMMARY:${escapeICal(name)}`,
-      `DESCRIPTION:${escapeICal(description || 'Schulhelfer Anlass')}`,
-      `LOCATION:Primarstufe Rittergasse Basel`,
-      'STATUS:CONFIRMED',
-      'SEQUENCE:0',
-      'END:VEVENT',
-      'END:VCALENDAR'
-    ].join('\r\n');
-    
-    return ical;
   }
   
   // Download calendar event
   window.downloadCalendarEvent = function(eventCard) {
-    const ical = generateICal(eventCard);
-    if (!ical) {
-      showError('Kalender-Download nicht möglich. Bitte versuchen Sie es später erneut.');
-      return;
+    try {
+      const ical = generateICal(eventCard);
+      if (!ical) {
+        showError('Kalender-Download nicht möglich. Das Datum konnte nicht erkannt werden.');
+        return;
+      }
+      
+      const name = eventCard.dataset.name || 'Schulhelfer-Anlass';
+      const blob = new Blob([ical], { type: 'text/calendar;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${name.replace(/[^a-z0-9äöüÄÖÜß]/gi, '_')}.ics`;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      announce(`Kalender-Eintrag für "${name}" wurde heruntergeladen`);
+    } catch (error) {
+      console.error('Error downloading calendar:', error);
+      showError('Fehler beim Herunterladen des Kalenders. Bitte versuchen Sie es erneut.');
     }
-    
-    const name = eventCard.dataset.name;
-    const blob = new Blob([ical], { type: 'text/calendar;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${name.replace(/[^a-z0-9]/gi, '_')}.ics`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    
-    announce(`Kalender-Eintrag für "${name}" wurde heruntergeladen`);
   };
 
   // === Event Selection ===
