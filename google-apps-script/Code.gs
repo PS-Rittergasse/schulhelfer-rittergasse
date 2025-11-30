@@ -130,77 +130,6 @@ function sendEmailNotification(to, subject, body, htmlBody) {
   }
 }
 
-/**
- * Send confirmation email to user
- */
-function sendUserConfirmation(email, name, anlassName, datum, zeit) {
-  var subject = 'Anmeldung bestaetigt: ' + anlassName;
-  
-  // Build HTML email using string concatenation (more reliable in GAS)
-  var zeitRow = '';
-  if (zeit) {
-    zeitRow = '<tr><td style="padding:12px 16px;font-weight:600;color:#1a202c;border-bottom:1px solid #e5e7eb;">Zeit:</td>' +
-              '<td style="padding:12px 16px;color:#374151;border-bottom:1px solid #e5e7eb;">' + zeit + '</td></tr>';
-  }
-  
-  var htmlBody = '<!DOCTYPE html>' +
-    '<html><head><meta charset="UTF-8"></head>' +
-    '<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background-color:#f3f4f6;">' +
-    '<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6;padding:32px 16px;">' +
-    '<tr><td align="center">' +
-    '<table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.1);">' +
-    
-    // Header
-    '<tr><td style="background:linear-gradient(135deg,#1e3a5f 0%,#2d5a8a 100%);padding:32px;text-align:center;">' +
-    '<div style="font-size:40px;margin-bottom:8px;">🏰</div>' +
-    '<h1 style="margin:0;font-size:22px;font-weight:700;color:#ffffff;">Primarstufe Rittergasse</h1>' +
-    '<p style="margin:4px 0 0;font-size:14px;color:rgba(255,255,255,0.8);">Kindergarten & Primarschule Basel</p>' +
-    '</td></tr>' +
-    
-    // Success banner
-    '<tr><td style="padding:24px 24px 0;">' +
-    '<div style="background-color:#d1fae5;border-left:4px solid #059669;padding:16px 20px;border-radius:8px;">' +
-    '<h2 style="margin:0 0 4px;font-size:18px;color:#065f46;">✓ Anmeldung bestätigt!</h2>' +
-    '<p style="margin:0;font-size:15px;color:#047857;">Vielen Dank, ' + name + '!</p>' +
-    '</div></td></tr>' +
-    
-    // Details table
-    '<tr><td style="padding:24px;">' +
-    '<h3 style="margin:0 0 16px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280;">Ihre Anmeldung</h3>' +
-    '<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9fafb;border-radius:8px;overflow:hidden;">' +
-    '<tr><td style="padding:12px 16px;font-weight:600;color:#1a202c;border-bottom:1px solid #e5e7eb;">Anlass:</td>' +
-    '<td style="padding:12px 16px;color:#374151;border-bottom:1px solid #e5e7eb;font-weight:600;">' + anlassName + '</td></tr>' +
-    '<tr><td style="padding:12px 16px;font-weight:600;color:#1a202c;border-bottom:1px solid #e5e7eb;">Datum:</td>' +
-    '<td style="padding:12px 16px;color:#374151;border-bottom:1px solid #e5e7eb;">' + datum + '</td></tr>' +
-    zeitRow +
-    '<tr><td style="padding:12px 16px;font-weight:600;color:#1a202c;">Angemeldet als:</td>' +
-    '<td style="padding:12px 16px;color:#374151;">' + name + '</td></tr>' +
-    '</table></td></tr>' +
-    
-    // Message
-    '<tr><td style="padding:0 24px 24px;">' +
-    '<p style="margin:0;font-size:15px;color:#4b5563;line-height:1.6;">Wir freuen uns auf Ihre Unterstützung! Bei Fragen wenden Sie sich bitte an die Schulleitung.</p>' +
-    '</td></tr>' +
-    
-    // Footer
-    '<tr><td style="padding:20px 24px;background-color:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;">' +
-    '<p style="margin:0;font-size:12px;color:#9ca3af;">Primarstufe Rittergasse Basel<br>Diese E-Mail wurde automatisch generiert.</p>' +
-    '</td></tr>' +
-    
-    '</table></td></tr></table></body></html>';
-
-  var textBody = 'Anmeldung bestaetigt: ' + anlassName + '\n\n' +
-                 'Vielen Dank, ' + name + '!\n\n' +
-                 'Ihre Anmeldung wurde erfolgreich registriert.\n\n' +
-                 'Anlass: ' + anlassName + '\n' +
-                 'Datum: ' + datum + '\n' +
-                 (zeit ? 'Zeit: ' + zeit + '\n' : '') +
-                 '\nWir freuen uns auf Ihre Unterstützung!\n\n' +
-                 'Primarstufe Rittergasse Basel';
-
-  sendEmailNotification(email, subject, textBody, htmlBody);
-}
-
 // === GET Requests ===
 function doGet(e) {
   var output;
@@ -431,24 +360,7 @@ function registriereHelfer(data) {
     
     lock.releaseLock();
     
-    // Get event date and time for confirmation email
-    var eventDatum = '';
-    var eventZeit = '';
-    for (var k = 1; k < anlassData.length; k++) {
-      if (String(anlassData[k][0]) == String(anlassId)) {
-        var datumValue = anlassData[k][2];
-        if (datumValue) {
-          eventDatum = formatDatum(new Date(datumValue));
-        }
-        eventZeit = anlassData[k][3] || '';
-        break;
-      }
-    }
-    
-    // Send confirmation email to user
-    sendUserConfirmation(email, name, anlassName, eventDatum, eventZeit);
-    
-    // Send email notification to admin
+    // Send email notification to admin (optional)
     if (ADMIN_EMAIL) {
       var emailBody = 'Neue Anmeldung für Schulhelfer:\n\n' +
                      'Anlass: ' + anlassName + '\n' +
@@ -462,7 +374,7 @@ function registriereHelfer(data) {
     
     return { 
       success: true, 
-      message: 'Vielen Dank, ' + name + '! Sie sind für «' + anlassName + '» angemeldet. Eine Bestätigung wurde an ' + email + ' gesendet.' 
+      message: 'Vielen Dank, ' + name + '! Sie sind für «' + anlassName + '» angemeldet.' 
     };
     
   } catch (e) {
